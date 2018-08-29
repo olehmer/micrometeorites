@@ -9,7 +9,7 @@
 # Contact info@lehmer.us with questions or comments on this code.
 ###############################################################################
 
-from math import sin,cos,sqrt,atan,asin,pi
+from math import sin,cos,sqrt,atan,asin,pi,exp
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
@@ -17,6 +17,9 @@ from matplotlib.patches import Circle
 #Define constants here
 gravity_0 = 9.8 #gravity at Earth's surface [m s-2]
 earth_rad = 6.37E6 #radius of Earth [m]
+kb = 1.381E-23 #Boltzmann constant [J K-1]
+proton_mass = 1.67E-27 #mass of a proton [kg]
+
 
 
 def velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude):
@@ -25,20 +28,23 @@ def velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude):
     the atmosphere. This is based on equation 1 of Genge et al. (2016).
 
     Inputs:
-        theta - the angle between the velocity vector and the Earth's surface.
-                An angle of 90 is parallel to the surface.
-        v_0   - current particle velocity magnitude [m s-1]
-        rho_a - atmospheric density [kg m-3]
-        rho_m - density of micrometeorite [kg m-3]
-        rad   - radius of the micrometeorite [m]
-        dt    - the timestep [s]
-        altitude - the altitude of the micrometeorite, for gravity [m]
+        theta    - the angle between the velocity vector and the Earth's 
+                   surface.An angle of 90 is parallel to the surface.
+        v_0      - current particle velocity magnitude [m s-1]
+        rho_a    - atmospheric density [kg m-3]
+        rho_m    - density of micrometeorite [kg m-3]
+        rad      - radius of the micrometeorite [m]
+        dt       - the time step [s]
+        altitude - the altitude of the micrometeorite from the Earth's center
+                   (not from the surface!) [m]
 
     Returns:
         velocity  - the magnitude of the velocity vector [m s-2]
         new_theta - the new angle of the velocity vector 
 
     """
+
+
 
     #this scaling is from pg 11 of David's book
     gravity = gravity_0*(earth_rad/altitude)**2
@@ -58,9 +64,47 @@ def velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude):
     if vel_y < 0:
         #the micrometeorite is moving away from Earth, make the angle positive
         new_theta += pi
-        
 
     return velocity, new_theta
+
+def updateRadius(rho_m, r_0, dt):
+    """
+    Calculate the new micrometeorite radius. This is equation 2 of Genge et al.
+    (2016).
+
+    Inputs:
+        rho_m - the density of the micrometeorite [kg m-3]
+        r_0   - current micrometeorite radius [m]
+        dt    - simulation time step [s]
+
+    Returns:
+        new_r - the updated micrometeorite radius [m]
+    """
+
+    d_mass = 0 #TODO implement the mass equation!
+
+    new_r = 1/(4*pi*rho_m*r_0**2)*d_mass*dt 
+
+    return new_r
+
+def massDerivativeSilicate(temp):
+    """
+    Calculate the rate of change for the micrometeorite mass (dm/dt) for a 
+    silicate particle. This is equation 7 of Genge et al. (2016).
+
+    Inputs:
+        temp - temperature of the micrometeorite [K]
+        
+    Returns:
+        dm_dt - the mass rate of change [kg s-1]
+    """
+    c_sp = 680 #specific heat capacity of SiO2 [J kg-1 K-1]
+    m_mol = 20*proton_mass #silicate mean molecular mass [kg]
+    p_v = exp(9.6-26700/temp) #equation 8
+    dm_dt = -4*pi*c_sp*p_v*sqrt(m_mol/temp) #equation 7
+    return dm_dt
+
+
 
 def positionUpdate(altitude, velocity, theta, phi, dt):
     """
@@ -71,11 +115,11 @@ def positionUpdate(altitude, velocity, theta, phi, dt):
     accounted for.
 
     Inputs:
-        altitude - the altitude of the micrometeorite [m]
+        altitude - the altitude of the micrometeorite from Earth's center [m]
         velocity - the velocity of the micrometeorite [m s-1]
         theta    - the angle of the velocity vector relative to the surface
         phi      - the angle of the micrometeorite around the Earth
-        dt       - the timestep [s]
+        dt       - the time step [s]
 
     Returns
         new_theta - the updated angle for the velocity vector
@@ -99,37 +143,84 @@ def positionUpdate(altitude, velocity, theta, phi, dt):
     return new_theta, phi, new_alt 
 
 
+def atmosphericDensity(p_sur, altitude, temp, scale_height, m_bar):
+    """
+    Returns the atmospheric density at a given altitude assuming an isothermal
+    atmosphere that is in hydrostatic equilibrium and well mixed.
+
+    Inputs:
+        p_sur        - the surface pressure of the atmosphere [Pa]
+        altitude     - the distance above Earth's center [m]
+        temp         - the isothermal atmospheric temperature [K]
+        scale_height - the scale height of the atmosphere [m]
+        m_bar        - mean molecular weight of the atmosphere [kg]
+
+    Returns:
+        rho_a - atmosphere density at altitude [kg m-3]
+    """
+
+    height = altitude - earth_rad
+    if height < 0:
+        #can happen on the last run
+        height = 0
+    pressure = p_sur*exp(-height/scale_height)
+    rho_a = m_bar*pressure/(kb*temp)
+
+    
+    return rho_a
+
+
+
+
 def simulateParticle():
     """
     Top level function to simulate a micrometeorite.
     """
 
-    rho_a = 0.0
+    #atmospheric constants
+    m_bar = 29*proton_mass #mean molecular weight of the atmosphere [kg m-3]
+    scale_height = 8400 #atmospheric scale height [m]
+    isothermal_temp = 288 #temperature of the atmosphere [K]
+    p_sur = 1.0E5 #surface pressure [Pa]
+
     rho_m = 3000.0 #micrometeorite density [kg m-3]
     rad = 1.0E-6 #micrometeorite radius [m]
-    dt = 10.55 #time step [s]
+    dt = 0.05 #time step [s]
 
-    max_iter = 100000
+    max_iter = 1000000
 
-    v_0 = 18000.0 #initial velocity [m s-1]
+    v_0 = 7660.0 #initial velocity [m s-1]
     theta = 80*pi/180 #initial entry angle
     phi = 0 #initial position around the Earth (always starts at 0)
-    altitude = 1.0E5 + earth_rad #initial altitude [m]
+    altitude = 4.08E5 + earth_rad #initial altitude [m]
 
     altitudes = np.zeros(max_iter)
     phis = np.zeros(max_iter)
+    end_index = -1
     
     for i in range(0, max_iter):
+        rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
+                scale_height, m_bar)
         v_0, theta = velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude)
         theta, phi, altitude = positionUpdate(altitude, v_0, theta, phi, dt)
 
         altitudes[i] = altitude
         phis[i] = phi
 
-    plotParticlePath(altitudes, phis)
+        if altitude < earth_rad:
+            #the particle hit the surface, no need to continue
+            end_index = i 
+            break
+
+    if end_index == -1:
+        end_index = max_iter
 
 
-def plotParticlePath(altitudes, phis):
+    x_vals, y_vals = convertToCartesian(altitudes, phis, end_index)
+    plotParticlePath(x_vals, y_vals)
+
+
+def plotParticlePath(x_vals, y_vals):
     """
     Plot the path of the particle around the Earth using the calculated 
     altitudes and phis.
@@ -139,19 +230,21 @@ def plotParticlePath(altitudes, phis):
         phis      - the angle of the altitude vector through time
     """
 
-    earth = Circle((0,0), earth_rad, alpha=0.4, color="black")
+    scale = 1000 #convert to km
+    earth = Circle((0,0), earth_rad/scale, alpha=0.4, color="black")
     plt.gca().add_patch(earth)
 
-    x_vals, y_vals = convertToCartesian(altitudes, phis)
-    plt.plot(x_vals, y_vals)
+    plt.plot(x_vals/scale, y_vals/scale)
 
     #plt.xlim(-earth_rad*1.1, earth_rad*1.1)
     #plt.ylim(-earth_rad*1.1, earth_rad*1.1)
+    plt.xlabel("Distance [km]")
+    plt.ylabel("Distance [km]")
     plt.axes().set_aspect("equal")
     plt.show()
 
 
-def convertToCartesian(magnitudes, angles):
+def convertToCartesian(magnitudes, angles, end_index=-1):
     """
     Take an array of vector magnitudes and corresponding angle array and find
     the corresponding cartesian coordinates.
@@ -159,16 +252,22 @@ def convertToCartesian(magnitudes, angles):
     Inputs:
         magnitudes - the vector magnitudes
         angles     - the vector angles
+        end_index  - the last index to use in the input arrays
 
     Returns:
         x_vals - the x values of the vectors
         y_vals - the corresponding y values
     """
 
-    x_vals = np.zeros(len(magnitudes))
+    length = len(magnitudes)
+    if end_index != -1:
+        length = end_index
+
+    x_vals = np.zeros(length)
     y_vals = np.zeros_like(x_vals)
 
-    for i in range(0,len(x_vals)):
+    
+    for i in range(0,length):
         x_vals[i] = magnitudes[i]*sin(angles[i])
         y_vals[i] = magnitudes[i]*cos(angles[i])
 
