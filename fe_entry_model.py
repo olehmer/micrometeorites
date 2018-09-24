@@ -238,6 +238,8 @@ def updateMetalAndOxideMasses(dm_evap_dt, gamma, M_Fe, M_FeO, rho_o, rad, v_0,
     new_M_FeO = 0
     dm_metal_dt = 0
 
+    oxygen_added = gamma*rho_o*pi*rad**2*v_0*dt
+
     #if there's no Fe left just evaporate the oxide
     if M_Fe ==0:
         if M_FeO != 0:
@@ -265,7 +267,7 @@ def updateMetalAndOxideMasses(dm_evap_dt, gamma, M_Fe, M_FeO, rho_o, rad, v_0,
         print("dm_oxide_dt=%2.2e, dm_metal_dt=%2.2e"%(dm_oxide_dt, dm_metal_dt))
         new_M_FeO = 0
 
-    return new_M_Fe, new_M_FeO, dm_metal_dt
+    return new_M_Fe, new_M_FeO, dm_metal_dt, oxygen_added
 
 def updateRadiusAndDensity(M_Fe, M_FeO):
     """
@@ -425,7 +427,7 @@ def simulateParticle():
 
     rho_m = 7000.0 #micrometeorite density, starts as pure Fe [kg m-3]
     rad = 50*1.0E-6 #micrometeorite radius [m]
-    dt = 0.005 #time step [s]
+    dt = 0.05 #time step [s]
 
     max_iter = 5000
 
@@ -458,6 +460,9 @@ def simulateParticle():
     dm_metal_dt = 0
     dm_evap_dt = 0
 
+    total_oxygen_mass = 0
+    total_evap_loss = 0
+
        
     for i in range(0, max_iter):
         if altitude - earth_rad >= 70000:
@@ -466,21 +471,41 @@ def simulateParticle():
             rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
                     scale_height, m_bar)
             rho_o = rho_a*0.21 #just use 21% oxygen at this point
-            print("using hydrostatic")
+            print("using hydrostatics")
         v_0, theta = velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude)
         theta, phi, altitude = positionUpdate(altitude, v_0, theta, phi, dt)
         dm_evap_dt = massEvaporationDerivative(rad, temp, c_sp, m_mol)
         temp = updateTemperature(rad, c_sp, rho_m, rho_a, v_0, L_v, temp, 
                 dm_metal_dt, dm_evap_dt, dt)
 
-        M_Fe, M_FeO, dm_metal_dt = updateMetalAndOxideMasses(dm_evap_dt, gamma, 
+        M_Fe, M_FeO, dm_metal_dt, oxy = updateMetalAndOxideMasses(dm_evap_dt, gamma, 
                 M_Fe, M_FeO, rho_o, rad, v_0, dt)
         rad, rho_m = updateRadiusAndDensity(M_Fe, M_FeO)
 
+        total_evap_loss += dm_evap_dt*dt
+        total_oxygen_mass += oxy
 
-        print("%3d: M_Fe=%2.2e, M_FeO=%2.2e, rad=%2.2e, rho_m=%2.2e, \
-                temp=%0.0f, dm_evap_dt=%2.2e"%(i, M_Fe, M_FeO, rad, rho_m, 
-                    temp, dm_evap_dt))
+        balance =  (4/3*pi*(50*1.0E-6)**3*7000) + total_oxygen_mass + total_evap_loss 
+        b_diff = M_Fe + M_FeO - balance
+        print("\n")
+        print(i)
+        print("temp=%0.0f"%(temp))
+        print("Metal loss: %2.3e"%((4/3*pi*(50*1.0E-6)**3*7000) - M_Fe))
+        print("M_Fe=%2.3e"%(M_Fe))
+        print("M_FeO=%2.3e"%(M_FeO))
+        print("dm_metal=%2.3e"%(dm_metal_dt*dt))
+        print("b_diff = %2.3e"%(b_diff))
+        print("total evap: %2.3e"%(total_evap_loss))
+
+        print("------------------------------------------------------")
+
+        if i==-1:
+            sys.exit()
+
+
+#        print("%3d: M_Fe=%2.2e, M_FeO=%2.2e, rad=%2.2e, rho_m=%2.2e, \
+#                temp=%0.0f, dm_evap_dt=%2.2e"%(i, M_Fe, M_FeO, rad, rho_m, 
+#                    temp, dm_evap_dt))
 
 
         altitudes[i] = altitude
