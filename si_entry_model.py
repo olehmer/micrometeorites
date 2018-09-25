@@ -13,13 +13,15 @@ from math import sin,cos,sqrt,atan,asin,pi,exp
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
+from scipy.optimize import fsolve
 
 #Define constants here
 gravity_0 = 9.8 #gravity at Earth's surface [m s-2]
 earth_rad = 6.37E6 #radius of Earth [m]
 kb = 1.381E-23 #Boltzmann constant [J K-1]
 proton_mass = 1.67E-27 #mass of a proton [kg]
-sigma = 5.67E-8 #Stefan-Boltzmann constant [W m-2 K-4]
+#sigma = 5.67E-8 #Stefan-Boltzmann constant [W m-2 K-4]
+sigma = 5.67E-5 #[erg cm-2 s-1 K-4]
 
 
 def US1976StandardAtmosphere(altitude):
@@ -199,8 +201,16 @@ def massDerivativeSilicate(rad, temp,c_sp, m_mol):
     Returns:
         dm_dt - the mass rate of change [kg s-1]
     """
+    #convert rad from m to cm
+    rad = rad*100
+
     p_v = vaporPressure(temp)
     dm_dt = -4*pi*rad**2*c_sp*p_v*sqrt(m_mol/temp) #equation 7 of Genge (2016)
+
+    #ORL TODO constants are set to be in cgs units, convert to kg
+    dm_dt = dm_dt/1000 #convert from [g s-1] to [kg s-1]
+
+
 
     return dm_dt
 
@@ -220,15 +230,15 @@ def vaporPressure(temp):
         p_v - vapor pressure [Pa]
     """
 
-    const_A = 9.6
-    const_B = 26700
+    const_A = 10.6 #9.6
+    const_B = 13500 #26700
     p_v = 10**(const_A-const_B/temp)
 
-    p_v = p_v/10 #convert from [dynes cm-2] to [Pa]
+    #p_v = p_v/10 #convert from [dynes cm-2] to [Pa]
 
     return p_v
 
-def updateTemperature(rad, c_sp, rho_m, rho_a, v_0, L_v, temp, m_mol, dt):
+def updateTemperature(rad, c_sp, rho_a, v_0, L_v, temp, m_mol):
     """
     Calculate the derivative of temperature with respect to time. This is 
     equation 6 of Genge et al. (2016).
@@ -236,7 +246,6 @@ def updateTemperature(rad, c_sp, rho_m, rho_a, v_0, L_v, temp, m_mol, dt):
     Inputs:
         rad     - radius of the micrometeorite [m]
         c_sp    - specific heat [J kg-1 K-1]
-        rho_m   - micrometeorite density [kg m-3]
         rho_a   - atmospheric density at micrometeorite position [kg m-3]
         v_0     - micrometeorite velocity magnitude [m s-1]
         L_v     - latent heat of vaporization [J kg-1]
@@ -246,14 +255,31 @@ def updateTemperature(rad, c_sp, rho_m, rho_a, v_0, L_v, temp, m_mol, dt):
     Returns:
         new_temp - new temperature of the micrometeorite [K]
     """
-    eps = 1.0 #emissivity assumed unity
-    p_v = vaporPressure(temp)
-    dT_dt = 1/(rad*c_sp*rho_m)*(3/8*rho_a*v_0**3-3*c_sp*L_v*p_v*
-            sqrt(m_mol/temp)-sigma*eps*temp**4)
 
+    #ORL TODO convert from SI units to cgs:
+    rad = rad*100 #m to cm
+    rho_a = rho_a/1000 #[kg m-3] to [g cm-3]
+    v_0 = v_0*100 #[m s-1] to [cm s-1]
 
-    new_temp = temp + dT_dt*dt #update the temperature
+    P_in = 0.5*rho_a*pi*rad**2*v_0**3 #input power
+    eps = 1.0
 
+    t_guess = (P_in/(sigma*eps*4*pi*rad**2))**0.25
+    if t_guess < temp:
+        #we don't want to guess 0
+        t_guess = temp
+
+    def eqn(T):
+        p_v = vaporPressure(T)
+        return 4*pi*rad**2*(eps*sigma*T**4+L_v*c_sp*p_v*sqrt(m_mol/T)) - P_in
+
+    result = fsolve(eqn, t_guess)
+
+    print(result)
+
+    new_temp = result[0]
+
+    
     return new_temp
 
 
@@ -336,25 +362,26 @@ def simulateParticle():
     p_sur = 1.0E5 #surface pressure [Pa]
 
     temp = isothermal_temp #assumed temp of micrometeorite at start
-    c_sp = 680 #specific heat capacity of SiO2 [J kg-1 K-1]
-    m_mol = 0.00086 #mean molecular mass [kg], converted from 45 [g mol-1]
+    #c_sp = 680 #specific heat capacity of SiO2 [J kg-1 K-1]
+    #m_mol = 0.00086 #mean molecular mass [kg], converted from 45 [g mol-1]
+    #L_v = 6.050E6 #latent heat of vaporization [J kg-1]
     #NOTE: these are the values Genge used, even though the units are wrong...
-    #c_sp = 4.377E-5 #from Love and Brownlee (1991), pg 33
-    #m_mol = 45 #[g mol-1], from the table on pg 33 of Love and Brownlee (1991)
+    c_sp = 4.377E-5 #from Love and Brownlee (1991), pg 33
+    m_mol = 45 #[g mol-1], from the table on pg 33 of Love and Brownlee (1991)
+    L_v = 6.05E10
 
 
 
     rho_m = 3000.0 #micrometeorite density [kg m-3]
     rad = 50*1.0E-6 #micrometeorite radius [m]
     dt = 0.05 #time step [s]
-    L_v = 6.050E6 #latent heat of vaporization [J kg-1]
 
     max_iter = 1000
 
     v_0 = 12000.0 #initial velocity [m s-1]
     theta = 45*pi/180 #initial entry angle
     phi = 0 #initial position around the Earth (always starts at 0)
-    altitude = 2.08E5 + earth_rad #initial altitude [m]
+    altitude = 1.90E5 + earth_rad #initial altitude [m]
 
     #arrays so hold results in
     altitudes = np.zeros(max_iter)
@@ -365,6 +392,7 @@ def simulateParticle():
     times = np.zeros(max_iter)
 
     end_index = -1
+    high_temp = 0
        
     for i in range(0, max_iter):
         if altitude - earth_rad >= 70000:
@@ -376,10 +404,13 @@ def simulateParticle():
 
         v_0, theta = velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude)
         theta, phi, altitude = positionUpdate(altitude, v_0, theta, phi, dt)
-        temp = updateTemperature(rad, c_sp, rho_m, rho_a, v_0, L_v, temp, 
-                m_mol, dt)
+        temp = updateTemperature(rad, c_sp, rho_a, v_0, L_v, temp, 
+                m_mol)
         dm_dt = massDerivativeSilicate(rad, temp, c_sp, m_mol)
         rad = updateRadius(rad, rho_m, dm_dt, dt)
+
+        if temp>high_temp:
+            high_temp = temp
 
 
         altitudes[i] = altitude
@@ -402,8 +433,10 @@ def simulateParticle():
 
 
 
-    x_vals, y_vals = convertToCartesian(altitudes, phis, end_index)
-    plotParticlePath(x_vals, y_vals)
+    print("Maximum temperature: %0.0f [K]"%(high_temp))
+    print("Final radius: %0.2f [microns]"%(rad*1.0E6))
+#    x_vals, y_vals = convertToCartesian(altitudes, phis, end_index)
+#    plotParticlePath(x_vals, y_vals)
 
     plotParticleParameters(temps[0:end_index+1], velocities[0:end_index+1], 
             rads[0:end_index+1], altitudes[0:end_index+1], times[0:end_index+1])
