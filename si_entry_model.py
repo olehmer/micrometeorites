@@ -383,7 +383,7 @@ def simulateParticle():
     phi = 0 #initial position around the Earth (always starts at 0)
     altitude = 1.90E5 + earth_rad #initial altitude [m]
 
-    #arrays so hold results in
+    #arrays to hold results in
     altitudes = np.zeros(max_iter)
     phis = np.zeros(max_iter)
     temps = np.zeros(max_iter)
@@ -529,8 +529,6 @@ def convertToCartesian(magnitudes, angles, end_index=-1):
 
 
 simulateParticle()
-
-
 
 
 

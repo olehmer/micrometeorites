@@ -2,8 +2,7 @@
 # 8/27/18 - Owen Lehmer
 #
 # This code implements the equations of Genge et al. (2016), which follows the
-# model of Love and Brownlee (1991). This file will calculate the properties of
-# an iron micrometeorite entering Earth's atmosphere.
+# model of Love and Brownlee (1991).
 #
 # To run the model:
 #
@@ -14,14 +13,19 @@ from math import sin,cos,sqrt,atan,asin,pi,exp
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
-import sys
+from scipy.optimize import fsolve
 
 #Define constants here
 gravity_0 = 9.8 #gravity at Earth's surface [m s-2]
 earth_rad = 6.37E6 #radius of Earth [m]
 kb = 1.381E-23 #Boltzmann constant [J K-1]
 proton_mass = 1.67E-27 #mass of a proton [kg]
-sigma = 5.67E-8 #Stefan-Boltzmann constant [W m-2 K-4]
+#sigma = 5.67E-8 #Stefan-Boltzmann constant [W m-2 K-4]
+sigma = 5.67E-5 #[erg cm-2 s-1 K-4]
+
+#densities from from the paragraph below equation 10 in Genge et al. (2016)
+rho_Fe = 7000 #liquid Fe density [kg m-3]
+rho_FeO = 4400 #liquid FeO density [kg m-3]
 
 
 def US1976StandardAtmosphere(altitude):
@@ -117,6 +121,7 @@ def US1976StandardAtmosphere(altitude):
 
 
 
+
 def velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude):
     """
     Calculates the velocity magnitude of a micrometeorite as it moves through
@@ -138,6 +143,8 @@ def velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude):
         new_theta - the new angle of the velocity vector 
 
     """
+
+
 
     #this scaling is from pg 11 of David's book
     gravity = gravity_0*(earth_rad/altitude)**2
@@ -161,113 +168,96 @@ def velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude):
     return velocity, new_theta
 
 
-def massEvaporationDerivative(rad, temp, c_sp, m_mol):
+def evaporativeMassLoss(rad, temp, c_sp, m_mol):
     """
-    Calculate the rate of change for the micrometeorite mass (dm/dt) for a 
-    particle. This is equation 7 of Genge et al. (2016).
+    Calculate the rate of change for the micrometeorite mass (dm/dt). 
 
     Inputs:
         rad   - micrometeorite radius [m]
         temp  - temperature of the micrometeorite [K]
-        c_sp  - specific heat capacity [J kg-1 K-1]
-        m_mol - mean molecular mass [kg mol-1]
+        c_sp  - specific heat capacity of SiO2 [J kg-1 K-1]
+        m_mol - silicate mean molecular mass [kg]
         
     Returns:
-        dm_evap_dt - the mass rate of change [kg s-1]
+        dm_dt - the mass rate of change [kg s-1]
     """
+    #convert rad from m to cm
+    rad = rad*100
 
     p_v = vaporPressure(temp)
+    dm_dt = -4*pi*rad**2*c_sp*p_v*sqrt(m_mol/temp) #equation 7 of Genge (2016)
 
-    dm_evap_dt = -4*pi*rad**2*c_sp*p_v*sqrt(m_mol/temp)
+    #constants are set to be in cgs units, convert result to kg
+    dm_dt = dm_dt/1000 #convert from [g s-1] to [kg s-1]
 
-    return dm_evap_dt
+    return dm_dt
 
 def vaporPressure(temp):
     """
     Return the vapor pressure of the micrometeorite using the Langmuir formula.
-    The vapor pressure is for wustite, which assumed to be the only material
-    evaporating from the micrometeorite. This is equation 13 in Genge et al. 
-    (2016).
+    The equation given in both Genge et al (2016) and Love and Brownlee (1991)
+    returns the pressure in [dynes cm-2], Genge doesn't seem to correct for the
+    unit mismatch however... 
 
     Inputs:
         temp - the temperature of the micrometeorite [K]
 
     Returns:
-        p_v - vapor pressure [Pa]
+        p_v - vapor pressure [dynes cm-2]
     """
 
-
-    #Genge's eqn 13 returns pressure in [dynes cm-2], we'll convert to Pa here
+    #these numbers are from equation 13 of Genge et al. (2016)
     const_A = 11.3
     const_B = 2.0126E4
-    p_v = 10**(const_A-const_B/temp)
-
-    p_v = p_v/10 #convert from [dynes cm-2] to [Pa]
+    p_v = 10**(const_A-const_B/temp)*10
 
     return p_v
 
-
-def updateMetalAndOxideMasses(dm_evap_dt, gamma, M_Fe, M_FeO, rho_o, rad, v_0, 
-        dt):
+def updateFeAndOxide(rad, v_0, rho_o, M_Fe, M_FeO, dm_evap_dt, dt):
     """
-    Calculate the new Fe liquid mass and new FeO liquid mass. These calculations
-    use equations 11 and 12 of Genge et al. (2016).
+    Update the mass of FeO and Fe in the micrometeorite based on the total
+    oxygen encountered, following Genge (2016) equations: 9, 10, 11, and 12.
 
     Inputs:
-        dm_evap_dt - oxide evaporation rate of FeO [kg s-1]
-        gamma      - constant fraction determining O2 reaction rate (0 to 1) 
-        M_Fe       - mass of Fe in micrometeorite [kg]
-        M_FeO      - mass of FeO in micrometeorite [kg]
-        rho_o      - density of oxygen at altitude [kg m-3]
         rad        - micrometeorite radius [m]
         v_0        - micrometeorite velocity [m s-1]
+        rho_o      - atmospheric oxygen density [kg m-3]
+        M_Fe       - Fe mass in micrometeorite [kg]
+        M_FeO      - FeO mass in micrometeorite [kg]
+        dm_evap_dt - evaporation rate of FeO [kg s-1]
         dt         - model time step [s]
 
     Returns:
-        new_M_Fe    - updated Fe mass in micrometeorite [kg]
-        new_M_FeO   - updated FeO mass in micrometeorite [kg]
-        dm_metal_dt - the rate of Fe loss via oxidation to FeO [kg s-1]
+        new_M_Fe  - the mass of Fe in the micrometeorite [kg]
+        new_M_FeO - the mass of FeO in the micrometeorite [kg]
+        dm_ox_dt  - the rate of FeO production [kg s-1]
     """
 
     Fe_atm_mass = 55.845 #mass of Fe [g mol-1]
     O_atm_mass = 15.999 #mass of O atom [g mol-1]
     FeO_mol_mass = Fe_atm_mass + O_atm_mass
 
-    #initialize return values
     new_M_Fe = 0
     new_M_FeO = 0
-    dm_metal_dt = 0
 
-    oxygen_added = gamma*rho_o*pi*rad**2*v_0*dt
+    #Genge equation 9
+    gamma = 1.0
+    total_O = gamma*rho_o*pi*rad**2*v_0 #[kg s-1]
 
-    #if there's no Fe left just evaporate the oxide
-    if M_Fe ==0:
-        if M_FeO != 0:
-            #the micrometeorite hasn't completely evaporated
-            #remember dm_evap_dt is already negative
-            new_M_FeO = M_FeO + dm_evap_dt*dt
+    dm_fe_dt = total_O*Fe_atm_mass/O_atm_mass
+    dm_ox_dt = total_O*FeO_mol_mass/O_atm_mass
+
+    #make sure we haven't lost all Fe 
+    if dm_fe_dt*dt > M_Fe:
+        #assume it's all lost in this step
+        dm_ox_dt = M_Fe/dt*FeO_mol_mass/Fe_atm_mass
     else:
-        #Still Fe left in the micrometeorite
+        new_M_Fe = M_Fe - dm_fe_dt*dt
 
-        dm_metal_dt = gamma*Fe_atm_mass/O_atm_mass*rho_o*pi*rad**2*v_0
+    new_M_FeO = M_FeO + (dm_ox_dt + dm_evap_dt)*dt #dm_evap_dt is <0 already
 
-        #check if the loss of Fe exceeds the total Fe left in the micrometeorite
-        if dm_metal_dt*dt > M_Fe:
-            #the iron bead in the middle will all be used up in this time step
-            dm_metal_dt = M_Fe/dt #can't lose more Fe than we have!
+    return new_M_Fe, new_M_FeO, dm_ox_dt
 
-        #note, dm_evap_dt is already negative when passed in
-        dm_oxide_dt = dm_metal_dt*FeO_mol_mass/Fe_atm_mass + dm_evap_dt
-
-        new_M_Fe = M_Fe - dm_metal_dt*dt
-        new_M_FeO = M_FeO + dm_oxide_dt*dt
-
-    if new_M_FeO < 0:
-        print("----------Ran out of FeO!------------------------")
-        print("dm_oxide_dt=%2.2e, dm_metal_dt=%2.2e"%(dm_oxide_dt, dm_metal_dt))
-        new_M_FeO = 0
-
-    return new_M_Fe, new_M_FeO, dm_metal_dt, oxygen_added
 
 def updateRadiusAndDensity(M_Fe, M_FeO):
     """
@@ -283,10 +273,6 @@ def updateRadiusAndDensity(M_Fe, M_FeO):
         new_rho - updated micrometeorite density [kg m-3]
     """
 
-    #densities from from the paragraph below equation 10 in Genge et al. (2016)
-    rho_Fe = 7000 #liquid Fe density [kg m-3]
-    rho_FeO = 4400 #liquid FeO density [kg m-3]
-
     volume = M_Fe/rho_Fe + M_FeO/rho_FeO
     new_rad = (3*volume/(4*pi))**(1/3)
 
@@ -296,36 +282,56 @@ def updateRadiusAndDensity(M_Fe, M_FeO):
 
 
 
-def updateTemperature(rad, c_sp, rho_m, rho_a, v_0, L_v, temp, dm_metal_dt, 
-        dm_evap_dt, dt):
+
+def updateTemperature(rad, c_sp, rho_a, v_0, L_v, temp, m_mol, dm_ox_dt):
     """
     Calculate the derivative of temperature with respect to time. This is 
     equation 6 of Genge et al. (2016).
 
     Inputs:
-        rad         - radius of the micrometeorite [m]
-        c_sp        - specific heat [J kg-1 K-1]
-        rho_m       - micrometeorite density [kg m-3]
-        rho_a       - atmospheric density at micrometeorite position [kg m-3]
-        v_0         - micrometeorite velocity magnitude [m s-1]
-        L_v         - latent heat of vaporization [J kg-1]
-        temp        - current temperature of the micrometeorite [K]
-        dm_metal_dt - mass of Fe oxidized [kg s-1]
-        dm_evap_dt  - mass of FeO evaporated [kg s-1]
-        dt          - simulation timestep [s]
+        rad      - radius of the micrometeorite [m]
+        c_sp     - specific heat [J kg-1 K-1]
+        rho_a    - atmospheric density at micrometeorite position [kg m-3]
+        v_0      - micrometeorite velocity magnitude [m s-1]
+        L_v      - latent heat of vaporization [J kg-1]
+        temp     - current temperature of the micrometeorite [K]
+        m_mol    - mean molecular weight of micrometeorite [kg]
+        dm_ox_dt - rate of Fe oxidation [kg s-1]
 
     Returns:
         new_temp - new temperature of the micrometeorite [K]
     """
-    eps = 1.0 #emissivity assumed unity
-    delta_Hox = 3.716E6 #oxidation heat of formation [J kg-1]
-    dqox_dx = delta_Hox*dm_metal_dt
-    dT_dt = 1/(rad*c_sp*rho_m)*(3*rho_a*v_0**3/8-3*L_v*dm_evap_dt/(4*pi*rad**2)-
-            3*sigma*eps*temp**4-3*dqox_dx/(4*pi*rad**2))
 
+    #convert from SI units to cgs:
+    rad = rad*100 #m to cm
+    rho_a = rho_a/1000 #[kg m-3] to [g cm-3]
+    v_0 = v_0*100 #[m s-1] to [cm s-1]
 
-    new_temp = temp + dT_dt*dt #update the temperature
+    P_in = 0.5*rho_a*pi*rad**2*v_0**3 #input power
+    eps = 1.0
 
+    #energy from oxidation, Genge equation 14.
+    #the 1.0E7 converts from [W] to [erg s-1]
+    h_ox = 3716*dm_ox_dt*(1.0E7)
+
+    t_guess = (P_in/(sigma*eps*4*pi*rad**2))**0.25
+    if t_guess < temp:
+        #we don't want to guess 0
+        t_guess = temp
+
+    def eqn(T):
+        """
+        Function to be called by fsolve. Balances the energy input and output.
+        """
+        p_v = vaporPressure(T)
+        res = 4*pi*rad**2*(eps*sigma*T**4+L_v*c_sp*p_v*sqrt(m_mol/T)) \
+                - P_in - h_ox
+        return res
+    result = fsolve(eqn, t_guess)
+
+    new_temp = result[0]
+
+    
     return new_temp
 
 
@@ -401,43 +407,37 @@ def simulateParticle():
     Top level function to simulate a micrometeorite.
     """
 
-    #atmospheric constants, taken from David's book
+    #atmospheric constants
     m_bar = 29*proton_mass #mean molecular weight of the atmosphere [kg m-3]
     scale_height = 8400 #atmospheric scale height [m]
     isothermal_temp = 288 #temperature of the atmosphere [K]
     p_sur = 1.0E5 #surface pressure [Pa]
 
     temp = isothermal_temp #assumed temp of micrometeorite at start
-
-    #FeO properties, 725
-    c_sp = 725 #specific heat [J kg-1 K-1] from Angelo et al. (2016)
-
-    #m_mol def can be found in equation 6 at this website: 
-    #http://blogs.ubc.ca/junou/2012/04/17/langmuirs-equation-for-evaporation/
-    m_mol = 72 #72*proton_mass/(2*pi*kb) #mean molecular weight [g mol-1]
-
-    #this is actually the latent heat for Fe and silica meteorites. Genge 
-    #doesn't list the L_v used TODO does this match Genge?
-    L_v = 6E6 #latent heat of vaporization [J kg-1]
-
-    #oxygen intake constant
-    gamma = 1.0
+    #c_sp = 680 #specific heat capacity of SiO2 [J kg-1 K-1]
+    #m_mol = 0.00086 #mean molecular mass [kg], converted from 45 [g mol-1]
+    #L_v = 6.050E6 #latent heat of vaporization [J kg-1]
+    #NOTE: these are the values Genge used, even though the units are wrong...
+    c_sp = 4.377E-5 #from Love and Brownlee (1991), pg 33
+    m_mol = 71.844 #[g mol-1], molar mass of FeO
+    L_v = 6.05E10
 
 
 
-    rho_m = 7000.0 #micrometeorite density, starts as pure Fe [kg m-3]
+    rho_m = rho_Fe #micrometeorite density [kg m-3]
     rad = 50*1.0E-6 #micrometeorite radius [m]
+    M_Fe = 4/3*pi*rad**3*rho_m #mass of Fe
+    M_FeO = 0 #mass of FeO
+    init_Fe = M_Fe
+
     dt = 0.05 #time step [s]
 
     max_iter = 1000
 
     v_0 = 12000.0 #initial velocity [m s-1]
-    theta = 45*pi/180 #initial entry angle in radians
+    theta = 45*pi/180 #initial entry angle
     phi = 0 #initial position around the Earth (always starts at 0)
     altitude = 1.90E5 + earth_rad #initial altitude [m]
-    M_Fe = 4/3*pi*rad**3*rho_m #mass of Fe
-    M_FeO = 0 #mass of FeO
-
 
     #arrays to hold results in
     altitudes = np.zeros(max_iter)
@@ -445,66 +445,34 @@ def simulateParticle():
     temps = np.zeros(max_iter)
     rads = np.zeros(max_iter)
     velocities = np.zeros(max_iter)
-    FeO_masses = np.zeros(max_iter)
-    Fe_masses  = np.zeros(max_iter)
     times = np.zeros(max_iter)
 
     end_index = -1
-
-    rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
-                    scale_height, m_bar)
-    rho_o = rho_a*0.21 #set to 21% as default, I realize it's 21% by volume
-    #but the average mass of air is within ~10% of O2 so we'll go with it
-
-    #initialize the loss terms
-    dm_metal_dt = 0
-    dm_evap_dt = 0
-
-    total_oxygen_mass = 0
-    total_evap_loss = 0
-
+    high_temp = 0
        
     for i in range(0, max_iter):
         if altitude - earth_rad >= 70000:
             rho_a, rho_o = US1976StandardAtmosphere(altitude)
+            rho_o = rho_o/2
         else:
             rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
                     scale_height, m_bar)
             rho_o = rho_a*0.21 #just use 21% oxygen at this point
+
         v_0, theta = velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude)
         theta, phi, altitude = positionUpdate(altitude, v_0, theta, phi, dt)
-        dm_evap_dt = massEvaporationDerivative(rad, temp, c_sp, m_mol)
-        temp = updateTemperature(rad, c_sp, rho_m, rho_a, v_0, L_v, temp, 
-                dm_metal_dt, dm_evap_dt, dt)
-
-        M_Fe, M_FeO, dm_metal_dt, oxy = updateMetalAndOxideMasses(dm_evap_dt, gamma, 
-                M_Fe, M_FeO, rho_o, rad, v_0, dt)
+        dm_evap_dt = evaporativeMassLoss(rad, temp, c_sp, m_mol)
+        M_Fe, M_FeO, dm_ox_dt = updateFeAndOxide(rad, v_0, rho_o, M_Fe, M_FeO, 
+                dm_evap_dt, dt)
+        temp = updateTemperature(rad, c_sp, rho_a, v_0, L_v, temp, 
+                m_mol, dm_ox_dt)
         rad, rho_m = updateRadiusAndDensity(M_Fe, M_FeO)
 
-        total_evap_loss += dm_evap_dt*dt
-        total_oxygen_mass += oxy
+        print("%4d: M_Fe = %2.2e (%%%2.0f), M_FeO = %2.2e, T=%0.0f"%(i,M_Fe,(M_Fe/init_Fe*100),M_FeO, temp))
 
-        balance =  (4/3*pi*(50*1.0E-6)**3*7000) + total_oxygen_mass + total_evap_loss 
-        b_diff = M_Fe + M_FeO - balance
-        print("\n")
-        print(i)
-        print("temp=%0.0f"%(temp))
-        print("Metal loss: %2.3e"%((4/3*pi*(50*1.0E-6)**3*7000) - M_Fe))
-        print("M_Fe=%2.3e"%(M_Fe))
-        print("M_FeO=%2.3e"%(M_FeO))
-        print("dm_metal=%2.3e"%(dm_metal_dt*dt))
-        print("b_diff = %2.3e"%(b_diff))
-        print("total evap: %2.3e"%(total_evap_loss))
-
-        print("------------------------------------------------------")
-
-        if i==-1:
-            sys.exit()
-
-
-#        print("%3d: M_Fe=%2.2e, M_FeO=%2.2e, rad=%2.2e, rho_m=%2.2e, \
-#                temp=%0.0f, dm_evap_dt=%2.2e"%(i, M_Fe, M_FeO, rad, rho_m, 
-#                    temp, dm_evap_dt))
+        if temp>high_temp:
+            #track the high temperature
+            high_temp = temp
 
 
         altitudes[i] = altitude
@@ -513,21 +481,21 @@ def simulateParticle():
         rads[i] = rad
         velocities[i] = v_0
         times[i] = i*dt
-        Fe_masses[i] = M_Fe
-        FeO_masses[i] = M_FeO
 
         if altitude < earth_rad:
             #the particle hit the surface, no need to continue
             end_index = i 
             break
-        
+
     if end_index == -1:
         end_index = max_iter
 
 
 
-    #x_vals, y_vals = convertToCartesian(altitudes, phis, end_index)
-    #plotParticlePath(x_vals, y_vals)
+    print("Maximum temperature: %0.0f [K]"%(high_temp))
+    print("Final radius: %0.2f [microns]"%(rad*1.0E6))
+#    x_vals, y_vals = convertToCartesian(altitudes, phis, end_index)
+#    plotParticlePath(x_vals, y_vals)
 
     plotParticleParameters(temps[0:end_index+1], velocities[0:end_index+1], 
             rads[0:end_index+1], altitudes[0:end_index+1], times[0:end_index+1])
@@ -620,8 +588,6 @@ def convertToCartesian(magnitudes, angles, end_index=-1):
 
 
 simulateParticle()
-
-
 
 
 
