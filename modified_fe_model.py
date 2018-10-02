@@ -209,11 +209,11 @@ def vaporPressure(temp):
     #these numbers are from equation 13 of Genge et al. (2016)
     const_A = 11.3
     const_B = 2.0126E4
-    p_v = 10**(const_A-const_B/temp)*10
+    p_v = 10**(const_A-const_B/temp)
 
     return p_v
 
-def updateFeAndOxide(rad, v_0, rho_o, M_Fe, M_FeO, dm_evap_dt, dt):
+def updateFeAndOxide(rad, v_0, rho_o, M_Fe, M_FeO, dm_evap_dt, temp, dt):
     """
     Update the mass of FeO and Fe in the micrometeorite based on the total
     oxygen encountered, following Genge (2016) equations: 9, 10, 11, and 12.
@@ -225,6 +225,7 @@ def updateFeAndOxide(rad, v_0, rho_o, M_Fe, M_FeO, dm_evap_dt, dt):
         M_Fe       - Fe mass in micrometeorite [kg]
         M_FeO      - FeO mass in micrometeorite [kg]
         dm_evap_dt - evaporation rate of FeO [kg s-1]
+        temp       - the micrometeorite temperature [K]
         dt         - model time step [s]
 
     Returns:
@@ -232,6 +233,8 @@ def updateFeAndOxide(rad, v_0, rho_o, M_Fe, M_FeO, dm_evap_dt, dt):
         new_M_FeO - the mass of FeO in the micrometeorite [kg]
         dm_ox_dt  - the rate of FeO production [kg s-1]
     """
+
+    Fe_metling_temp = 1809 #temperature at which Fe melts [K]
 
     Fe_atm_mass = 55.845 #mass of Fe [g mol-1]
     O_atm_mass = 15.999 #mass of O atom [g mol-1]
@@ -244,8 +247,12 @@ def updateFeAndOxide(rad, v_0, rho_o, M_Fe, M_FeO, dm_evap_dt, dt):
     gamma = 1.0
     total_O = gamma*rho_o*pi*rad**2*v_0 #[kg s-1]
 
-    dm_fe_dt = total_O*Fe_atm_mass/O_atm_mass
-    dm_ox_dt = total_O*FeO_mol_mass/O_atm_mass
+    dm_fe_dt = 0
+    dm_ox_dt = 0
+    if temp >= Fe_metling_temp:
+        dm_fe_dt = total_O*Fe_atm_mass/O_atm_mass
+        dm_ox_dt = total_O*FeO_mol_mass/O_atm_mass
+
 
     #make sure we haven't lost all Fe 
     if dm_fe_dt*dt > M_Fe:
@@ -255,6 +262,7 @@ def updateFeAndOxide(rad, v_0, rho_o, M_Fe, M_FeO, dm_evap_dt, dt):
         new_M_Fe = M_Fe - dm_fe_dt*dt
 
     new_M_FeO = M_FeO + (dm_ox_dt + dm_evap_dt)*dt #dm_evap_dt is <0 already
+
 
     return new_M_Fe, new_M_FeO, dm_ox_dt
 
@@ -418,7 +426,9 @@ def simulateParticle():
     #m_mol = 0.00086 #mean molecular mass [kg], converted from 45 [g mol-1]
     #L_v = 6.050E6 #latent heat of vaporization [J kg-1]
     #NOTE: these are the values Genge used, even though the units are wrong...
-    c_sp = 4.377E-5 #from Love and Brownlee (1991), pg 33
+    #c_sp = 4.377E-5 #from Love and Brownlee (1991), pg 33, [erg K-1]
+    c_sp = 7.25E-5 #specific heat [J kg-1 K-1] from Angelo et al. (2016)
+
     m_mol = 71.844 #[g mol-1], molar mass of FeO
     L_v = 6.05E10
 
@@ -435,7 +445,8 @@ def simulateParticle():
     max_iter = 1000
 
     v_0 = 12000.0 #initial velocity [m s-1]
-    theta = 45*pi/180 #initial entry angle
+    #NOTE 83.1 skips off the atmosphere before entering!!!!!!!!!!!!!
+    theta = 45*pi/180 #initial entry angle, from vertical 
     phi = 0 #initial position around the Earth (always starts at 0)
     altitude = 1.90E5 + earth_rad #initial altitude [m]
 
@@ -463,12 +474,12 @@ def simulateParticle():
         theta, phi, altitude = positionUpdate(altitude, v_0, theta, phi, dt)
         dm_evap_dt = evaporativeMassLoss(rad, temp, c_sp, m_mol)
         M_Fe, M_FeO, dm_ox_dt = updateFeAndOxide(rad, v_0, rho_o, M_Fe, M_FeO, 
-                dm_evap_dt, dt)
+                dm_evap_dt, temp, dt)
         temp = updateTemperature(rad, c_sp, rho_a, v_0, L_v, temp, 
                 m_mol, dm_ox_dt)
         rad, rho_m = updateRadiusAndDensity(M_Fe, M_FeO)
 
-        print("%4d: M_Fe = %2.2e (%%%2.0f), M_FeO = %2.2e, T=%0.0f"%(i,M_Fe,(M_Fe/init_Fe*100),M_FeO, temp))
+        #print("%4d: M_Fe = %2.2e (%%%2.0f), M_FeO = %2.2e, T=%0.0f"%(i,M_Fe,(M_Fe/init_Fe*100),M_FeO, temp))
 
         if temp>high_temp:
             #track the high temperature
@@ -494,6 +505,7 @@ def simulateParticle():
 
     print("Maximum temperature: %0.0f [K]"%(high_temp))
     print("Final radius: %0.2f [microns]"%(rad*1.0E6))
+    print("Final Fe mass fraction: %0.2f"%(M_Fe/(M_Fe+M_FeO)))
 #    x_vals, y_vals = convertToCartesian(altitudes, phis, end_index)
 #    plotParticlePath(x_vals, y_vals)
 
