@@ -552,11 +552,11 @@ def runModel():
     m_mol = 71.844 #[g mol-1], molar mass of FeO
     L_v = 6.05E10
 
-    rad = 200*1.0E-6 #micrometeorite radius [m]
+    rad = 50*1.0E-6 #micrometeorite radius [m]
 
     dt = 0.05 #time step [s]
 
-    v_0 = 18000.0 #initial velocity [m s-1]
+    v_0 = 12000.0 #initial velocity [m s-1]
     #NOTE 83.1 skips off the atmosphere before entering!!!!!!!!!!!!!
     theta = 45*pi/180 #initial entry angle, from vertical 
 
@@ -566,29 +566,29 @@ def runModel():
     max_temps = np.zeros((count,count))
 
     #Code snippet to just do a single run
-#    altitudes, phis, temps, rads, velocities, times = simulateParticle(
-#        m_bar, scale_height, isothermal_temp, p_sur, c_sp, m_mol, 
-#        L_v, rad, dt, v_0, theta, debug_print=True)
+    altitudes, phis, temps, rads, velocities, times = simulateParticle(
+        m_bar, scale_height, isothermal_temp, p_sur, c_sp, m_mol, 
+        L_v, rad, dt, v_0, theta, debug_print=True)
 
 
 
 
-    for i in range(0,count):
-        print("Percent done: %2.0f%%"%(i/count*100))
-        for j in range(0,count):
-            rad = input_rads[i]
-            theta = thetas[j]
-            altitudes, phis, temps, rads, velocities, times = simulateParticle(
-                    m_bar, scale_height, isothermal_temp, p_sur, c_sp, m_mol, 
-                    L_v, rad, dt, v_0, theta, debug_print=False)
-            max_temps[j][i] = np.max(temps)
+#    for i in range(0,count):
+#        print("Percent done: %2.0f%%"%(i/count*100))
+#        for j in range(0,count):
+#            rad = input_rads[i]
+#            theta = thetas[j]
+#            altitudes, phis, temps, rads, velocities, times = simulateParticle(
+#                    m_bar, scale_height, isothermal_temp, p_sur, c_sp, m_mol, 
+#                    L_v, rad, dt, v_0, theta, debug_print=False)
+#            max_temps[j][i] = np.max(temps)
 
 #    x_vals, y_vals = convertToCartesian(altitudes, phis, end_index)
 #    plotParticlePath(x_vals, y_vals)
 
-#    plotParticleParameters(temps, velocities, rads, altitudes, times)
+    plotParticleParameters(temps, velocities, rads, altitudes, times)
 
-    plotRadiusEntryTemp(input_rads, thetas, max_temps)
+#    plotRadiusEntryTemp(input_rads, thetas, max_temps)
 
 
 def plotRadiusEntryTemp(rads, thetas, temps):
@@ -757,8 +757,8 @@ def compareStandardAndHydrostaticAtmospheres():
 
 
 
-#runModel()
-compareStandardAndHydrostaticAtmospheres()
+runModel()
+#compareStandardAndHydrostaticAtmospheres()
 
 
 

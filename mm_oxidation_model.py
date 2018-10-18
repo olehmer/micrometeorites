@@ -22,6 +22,7 @@ earth_rad = 6.37E6 #radius of Earth [m]
 kb = 1.381E-23 #Boltzmann constant [J K-1]
 proton_mass = 1.67E-27 #mass of a proton [kg]
 sigma = 5.67E-8 #Stefan-Boltzmann constant [W m-2 K-4]
+gas_const = 8.314 #ideal gas constant [J mol-1 K-1]
 
 
 def US1976StandardAtmosphere(altitude):
@@ -298,22 +299,32 @@ def simulateParticle(radius, velocity, theta):
     #this specific heat was taken from figure 1 of Stolen et al (2015)
     #c_sp = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
     #figure 2 in the same paper shows a c_sp of 696 [J K-1 kg-1], so try both?
-    c_sp = 4.377E-5
+    #c_sp = 4.377E-5
+    c_sp = 696
 
     #latent heat of vaporization. This value is for silicates and taken from
     #love and Brownlee (1991) by Genge. Genge doesn't say that he uses a 
-    #different L_v for FeO...
+    #different L_v for FeO... But Fe is only slightly different (6.265E6) so 
+    #it's probably ok.
     L_v = 6.050E6 #[J kg-1]
 
-    m_FeO = 71.8 #molecular weight of FeO [g mol-1]
-    m_Fe = 55.8 #molecular weight of Fe [g mol-1]
-    m_O = 16 #molecular weight of O [g mol-1]
+    m_FeO = 0.0718 #molecular weight of FeO [kg mol-1]
+    m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
+    m_O = 0.016 #molecular weight of O [kg mol-1]
 
     max_iter = 3000
     dt = 0.01 #time step [s]
     end_index = -1
 
     max_temp = 0
+
+    #storage arrays
+    temps = np.zeros(max_iter)
+    velocities = np.zeros(max_iter)
+    radii = np.zeros(max_iter)
+    altitudes = np.zeros(max_iter)
+    times = np.zeros(max_iter)
+
 
        
     for i in range(0, max_iter):
@@ -329,11 +340,15 @@ def simulateParticle(radius, velocity, theta):
 
         #Genge equation 13, which is in [Pa], convert to [dynes cm-2]
         #since we'll use this with the molecular weight in [g mol-1]
-        p_v = 10**(11.3-2.0126E4/temp)*10
+        p_v = 10**(11.3-2.0126E4/temp)/10
 
         #Genge (2016) equation 7, use cgs units then convert
         #so the result will be in [g s-1], but convert to [kg s-1]
-        dM_evap_dt = 4*pi*(radius*100)**2*c_sp*p_v*sqrt(m_FeO/temp)/1000
+        #dM_evap_dt = 4*pi*(radius*100)**2*c_sp*p_v*sqrt(m_FeO/temp)/1000
+        dM_evap_dt = 4*pi*radius**2*c_sp*p_v*sqrt(m_FeO/(2*pi*gas_const*temp))
+
+        #to read more about the Langmuir formula see this website:
+        #http://www.atsunday.com/2013/07/water-evaporation-rate-per-surface-area.html?m=1
 
         dM_Fe_dt = 0
         dM_FeO_dt = 0
@@ -361,25 +376,51 @@ def simulateParticle(radius, velocity, theta):
 
         #equation 6 of Genge (2016). This has the oxidation energy considered
         #which is described by equation 14
-        c_sp2 = 390
-        dT_dt = 1/(radius*c_sp2*rho_m)*(3*rho_a*velocity**3/8 - 
+        dT_dt = 1/(radius*c_sp*rho_m)*(3*rho_a*velocity**3/8 - 
                 3*L_v*dM_evap_dt/(4*pi*radius**2) - 3*sigma*temp**4 - 
                 3*dq_ox_dt/(4*pi*radius**2))
         temp += dT_dt*dt
 
-        radius, rho_m = updateRadiusAndDensity(total_Fe, total_FeO)
+        if total_FeO + total_Fe > 0:
+            radius, rho_m = updateRadiusAndDensity(total_Fe, total_FeO)
+        else:
+            radius = 0
+            rho_m = 0
 
         if temp > max_temp:
             max_temp = temp
 
-        print("%3d: Fe: %3.0f%%, temp: %5.0f, radius: %0.1f [microns]"%(i,
-            total_Fe/(total_Fe+total_FeO)*100,temp,radius/(1.0E-6)))
+        try:
+            print("%3d: Fe: %3.0f%%, temp: %5.0f, radius: %0.1f [microns]"%(i,
+                total_Fe/(total_Fe+total_FeO)*100,temp,radius/(1.0E-6)))
+
+            if total_FeO < 0:
+                print("     FeO under 0! %2.2e"%(total_FeO))
+        except:
+            print(total_FeO)
+            print(total_Fe)
+            print(radius)
+            print(temp)
+
+            break
+
+        temps[i]=temp
+        velocities[i] = velocity
+        radii[i] = radius
+        altitudes[i] = altitude
+        times[i] = dt*i
 
         #check if the particle has started cooling significantly
-        if temp < max_temp/2:
+        if temp < max_temp/2 or radius == 0:
             end_index = i
             print("Early end!")
             break
+
+    print("\n\nFinal radius: %0.1f [microns]\nMax temperature: %0.0f[K]\nFe mass fraction: %0.2f"%(radius*1.0E6, max_temp, total_Fe/(total_Fe+total_FeO)))
+
+    plotParticleParameters(temps[0:end_index+1], velocities[0:end_index+1], 
+            radii[0:end_index+1], altitudes[0:end_index+1], times[0:end_index+1])
+
 
 
 def compareStandardAndHydrostaticAtmospheres():
@@ -443,8 +484,39 @@ def compareStandardAndHydrostaticAtmospheres():
     plt.show()
 
 
+def plotParticleParameters(temps, velocities, rads, altitudes, times):
+    """
+    Function to plot the various parameters of the simulation.
 
-simulateParticle(50*1.0E-6, 18000, 45*pi/180)
+    Inputs:
+        temps      - temperatures [K]
+        velocities - micrometeorite velocities [m s-1]
+        rads       - micrometeorite radii [m]
+        altitudes  - micrometeorite altitude above Earth's center [m]
+        times      - times [s]
+    """
+
+    fig, (ax1,ax2,ax3,ax4) = plt.subplots(4,1, sharex=True)
+    fig.set_size_inches(11,9)
+
+    ax1.plot(times,temps)
+    ax1.set_ylabel("Temp. [K]")
+    
+    ax2.plot(times,velocities/1000)
+    ax2.set_ylabel(r"Vel. [km s$^{-1}$]")
+
+    ax3.plot(times,rads*(1.0E6))
+    ax3.set_ylabel(r"Radius [$\mu$m]")
+
+    ax4.plot(times,(altitudes-earth_rad)/1000)
+    ax4.set_ylabel("Alt. [km]")
+    ax4.set_xlabel("Time [s]")
+
+    plt.show()
+
+
+
+simulateParticle(50*1.0E-6, 12000, 45*pi/180)
 #compareStandardAndHydrostaticAtmospheres()
 
 
