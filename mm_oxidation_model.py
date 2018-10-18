@@ -263,6 +263,13 @@ def simulateParticle(radius, velocity, theta):
         radius   - the radius of the micrometeorite [m]
         velocity - the initial entry velocity of the micrometeorite [m s-1]
         theta    - initial entry angle of the micrometeorite [radians]
+
+    Returns:
+        radius    - the final micrometeorite radius [m]
+        total_Fe  - total mass of Fe remaining [kg]
+        total_FeO - total mass of FeO remaining [kg]
+        max_temp  - maximum temperature of micrometeorite [K]
+        alt_max   - altitude of max pressure [m]
     """
 
     #atmospheric constants, taken from David's book
@@ -303,8 +310,10 @@ def simulateParticle(radius, velocity, theta):
     m_O = 16 #molecular weight of O [g mol-1]
 
     max_iter = 3000
-    dt = 0.005 #time step [s]
+    dt = 0.01 #time step [s]
     end_index = -1
+
+    max_temp = 0
 
        
     for i in range(0, max_iter):
@@ -318,7 +327,8 @@ def simulateParticle(radius, velocity, theta):
                 dt, altitude)
         theta, phi, altitude = positionUpdate(altitude, velocity, theta, phi, dt)
 
-        #Genge equation 13, which is in [dynes cm-2], convert to Pa
+        #Genge equation 13, which is in [Pa], convert to [dynes cm-2]
+        #since we'll use this with the molecular weight in [g mol-1]
         p_v = 10**(11.3-2.0126E4/temp)*10
 
         #Genge (2016) equation 7, use cgs units then convert
@@ -359,9 +369,19 @@ def simulateParticle(radius, velocity, theta):
 
         radius, rho_m = updateRadiusAndDensity(total_Fe, total_FeO)
 
+        if temp > max_temp:
+            max_temp = temp
 
         print("%3d: Fe: %3.0f%%, temp: %5.0f, radius: %0.1f [microns]"%(i,
             total_Fe/(total_Fe+total_FeO)*100,temp,radius/(1.0E-6)))
+
+        #check if the particle has started cooling significantly
+        if temp < max_temp/2:
+            end_index = i
+            print("Early end!")
+            break
+
+
 
 
 simulateParticle(50*1.0E-6, 12000, 45*pi/180)

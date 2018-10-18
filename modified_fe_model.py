@@ -382,7 +382,7 @@ def positionUpdate(altitude, velocity, theta, phi, dt):
     return new_theta, phi, new_alt 
 
 
-def atmosphericDensity(p_sur, altitude, temp, scale_height, m_bar):
+def atmosphericDensity(p_sur, altitude, temp, scale_height, m_bar, beta=1.0):
     """
     Returns the atmospheric density at a given altitude assuming an isothermal
     atmosphere that is in hydrostatic equilibrium and well mixed.
@@ -393,6 +393,9 @@ def atmosphericDensity(p_sur, altitude, temp, scale_height, m_bar):
         temp         - the isothermal atmospheric temperature [K]
         scale_height - the scale height of the atmosphere [m]
         m_bar        - mean molecular weight of the atmosphere [kg]
+        beta         - this term can be used to fit the hydrostatic to the 
+                       the standard atmosphere.
+
 
     Returns:
         rho_a - atmosphere density at altitude [kg m-3]
@@ -402,8 +405,6 @@ def atmosphericDensity(p_sur, altitude, temp, scale_height, m_bar):
     if height < 0:
         #can happen on the last run
         height = 0
-    beta = 1.0 #this term can be used to fit the hydrostatic the standard, a
-               # value of beta=1.05 fits the measured data well.
     pressure = p_sur*exp(-height/scale_height*beta)
     rho_a = m_bar*pressure/(kb*temp)
 
@@ -704,7 +705,10 @@ def compareStandardAndHydrostaticAtmospheres():
     stnd_rho = np.zeros(len(altitudes))
     stnd_ox = np.zeros_like(stnd_rho)
 
-    hydro_rho = np.zeros_like(stnd_rho)
+    hydro_rho0 = np.zeros_like(stnd_rho)
+    hydro_rho1 = np.zeros_like(stnd_rho)
+    hydro_rho2 = np.zeros_like(stnd_rho)
+
     hydro_ox = np.zeros_like(stnd_rho)
 
     for i in range(0,len(altitudes)):
@@ -715,27 +719,44 @@ def compareStandardAndHydrostaticAtmospheres():
         stnd_rho[i] = rho_a
         stnd_ox[i] = rho_o
 
-        rho_a = atmosphericDensity(p_sur, alt, isothermal_temp, 
+        rho_a0 = atmosphericDensity(p_sur, alt, isothermal_temp, 
                 scale_height, m_bar)
-        rho_o = rho_a*0.21 #just use 21% oxygen at this point
+        rho_o = rho_a0*0.21 #just use 21% oxygen at this point
 
-        hydro_rho[i] = rho_a
+        rho_a1 = atmosphericDensity(p_sur, alt, isothermal_temp, 
+                scale_height, m_bar, beta=0.95)
+
+        rho_a2 = atmosphericDensity(p_sur, alt, isothermal_temp, 
+                scale_height, m_bar, beta=1.07)
+
+
+
+        hydro_rho0[i] = rho_a0
         hydro_ox[i] = rho_o
 
+        hydro_rho1[i] = rho_a1
+        hydro_rho2[i] = rho_a2
+
     altitudes = (altitudes-earth_rad)/1000 #convert to altitude in km
-    plt.plot(stnd_rho, altitudes,'ro', label="Stnd")
-    plt.plot(stnd_ox, altitudes,'bo', label="Stnd ox")
-    plt.plot(hydro_rho, altitudes, 'r', label="Hydro")
-    plt.plot(hydro_ox, altitudes,'b', label="Hydro ox")
+    plt.plot(stnd_rho, altitudes,'ro', label="US Standard")
+    #plt.plot(stnd_ox, altitudes,'bo', label="Stnd ox")
+    plt.plot(hydro_rho0, altitudes, 'r', label="Hydrostatic")
+    #plt.plot(hydro_ox, altitudes,'b', label="Hydro ox")
+    plt.plot(hydro_rho1, altitudes, 'b', label="Beta=0.95")
+    plt.plot(hydro_rho2, altitudes, 'k', label="Beta=1.07")
+
     plt.gca().set_xscale("log")
+    plt.xlabel(r"Atmospheric Density [kg m$^{-3}$]")
+    plt.ylabel("Altitude [km]")
+    plt.ylim([70,190])
     plt.legend()
     plt.show()
 
 
 
 
-runModel()
-#compareStandardAndHydrostaticAtmospheres()
+#runModel()
+compareStandardAndHydrostaticAtmospheres()
 
 
 
