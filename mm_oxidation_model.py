@@ -517,7 +517,7 @@ def plotParticleParameters(temps, velocities, rads, altitudes, times):
 
 
 simulateParticle(50*1.0E-6, 12000, 45*pi/180)
-#compareStandardAndHydrostaticAtmospheres()
+compareStandardAndHydrostaticAtmospheres()
 
 
 
