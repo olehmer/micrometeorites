@@ -200,7 +200,7 @@ def positionUpdate(altitude, velocity, theta, phi, dt):
     return new_theta, phi, new_alt 
 
 
-def atmosphericDensity(p_sur, altitude, temp, scale_height, m_bar):
+def atmosphericDensity(p_sur, altitude, temp, scale_height, m_bar, beta=1.0):
     """
     Returns the atmospheric density at a given altitude assuming an isothermal
     atmosphere that is in hydrostatic equilibrium and well mixed.
@@ -220,7 +220,7 @@ def atmosphericDensity(p_sur, altitude, temp, scale_height, m_bar):
     if height < 0:
         #can happen on the last run
         height = 0
-    pressure = p_sur*exp(-height/scale_height)
+    pressure = p_sur*exp(-height/scale_height*beta)
     rho_a = m_bar*pressure/(kb*temp)
 
     
@@ -382,9 +382,70 @@ def simulateParticle(radius, velocity, theta):
             break
 
 
+def compareStandardAndHydrostaticAtmospheres():
+
+    #atmospheric constants
+    m_bar = 29*proton_mass #mean molecular weight of the atmosphere [kg m-3]
+    scale_height = 8400 #atmospheric scale height [m]
+    isothermal_temp = 288 #temperature of the atmosphere [K]
+    p_sur = 1.0E5 #surface pressure [Pa]
+
+    altitudes = np.linspace(earth_rad+7.0E4,earth_rad+1.9E5, 20)
+
+    stnd_rho = np.zeros(len(altitudes))
+    stnd_ox = np.zeros_like(stnd_rho)
+
+    hydro_rho0 = np.zeros_like(stnd_rho)
+    hydro_rho1 = np.zeros_like(stnd_rho)
+    hydro_rho2 = np.zeros_like(stnd_rho)
+
+    hydro_ox = np.zeros_like(stnd_rho)
+
+    for i in range(0,len(altitudes)):
+        alt = altitudes[i]
+        rho_a, rho_o = US1976StandardAtmosphere(alt)
+        rho_o = rho_o/2
+
+        stnd_rho[i] = rho_a
+        stnd_ox[i] = rho_o
+
+        rho_a0 = atmosphericDensity(p_sur, alt, isothermal_temp, 
+                scale_height, m_bar)
+        rho_o = rho_a0*0.21 #just use 21% oxygen at this point
+
+        rho_a1 = atmosphericDensity(p_sur, alt, isothermal_temp, 
+                scale_height, m_bar, beta=0.95)
+
+        rho_a2 = atmosphericDensity(p_sur, alt, isothermal_temp, 
+                scale_height, m_bar, beta=1.07)
 
 
-simulateParticle(50*1.0E-6, 12000, 45*pi/180)
+
+        hydro_rho0[i] = rho_a0
+        hydro_ox[i] = rho_o
+
+        hydro_rho1[i] = rho_a1
+        hydro_rho2[i] = rho_a2
+
+    altitudes = (altitudes-earth_rad)/1000 #convert to altitude in km
+    plt.plot(stnd_rho, altitudes,'ro', label="US Standard")
+    plt.plot(stnd_ox, altitudes,'bo', label="Stnd ox")
+    plt.plot(hydro_rho0, altitudes, 'r', label="Hydrostatic")
+    #plt.plot(hydro_ox, altitudes,'b', label="Hydro ox")
+    plt.plot(hydro_rho1, altitudes, 'b', label="Beta=0.95")
+    plt.plot(hydro_rho2, altitudes, 'k', label="Beta=1.07")
+
+    plt.gca().set_xscale("log")
+    plt.xlabel(r"Atmospheric Density [kg m$^{-3}$]")
+    plt.ylabel("Altitude [km]")
+    plt.ylim([70,190])
+    plt.legend()
+    plt.show()
+
+
+
+simulateParticle(50*1.0E-6, 18000, 45*pi/180)
+#compareStandardAndHydrostaticAtmospheres()
 
 
 

@@ -49,6 +49,8 @@ def US1976StandardAtmosphere(altitude):
     rho_o = 0
 
     alt_data = [ #altitude points [m]
+        70000,
+        75000,
         80000,
         85000,
         90000,
