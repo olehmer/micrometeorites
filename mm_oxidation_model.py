@@ -270,7 +270,6 @@ def simulateParticle(radius, velocity, theta):
         total_Fe  - total mass of Fe remaining [kg]
         total_FeO - total mass of FeO remaining [kg]
         max_temp  - maximum temperature of micrometeorite [K]
-        alt_max   - altitude of max pressure [m]
     """
 
     #atmospheric constants, taken from David's book
@@ -354,8 +353,8 @@ def simulateParticle(radius, velocity, theta):
         dM_FeO_dt = 0
 
         #make sure there's some Fe before trying to oxidize it
-        if temp > FeO_melting_temp:
-            dM_FeO_dt = -dM_evap_dt 
+#        if temp > FeO_melting_temp:
+#            dM_FeO_dt = -dM_evap_dt 
         if total_Fe > 0 and temp > Fe_metling_temp:
             #equation 11, Fe lost to oxidation [kg s-1]
             dM_Fe_dt = -m_Fe/m_O*rho_o*pi*radius**2*velocity
@@ -420,6 +419,8 @@ def simulateParticle(radius, velocity, theta):
 
     plotParticleParameters(temps[0:end_index+1], velocities[0:end_index+1], 
             radii[0:end_index+1], altitudes[0:end_index+1], times[0:end_index+1])
+
+    return radius, total_Fe, total_FeO, max_temp
 
 
 
