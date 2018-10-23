@@ -337,14 +337,14 @@ def simulateParticle(radius, velocity, theta):
                 dt, altitude)
         theta, phi, altitude = positionUpdate(altitude, velocity, theta, phi, dt)
 
-        #Genge equation 13, which is in [Pa], convert to [dynes cm-2]
-        #since we'll use this with the molecular weight in [g mol-1]
+        #Genge equation 13, which is in [dynes cm-2], convert to[Pa]
         p_v = 10**(11.3-2.0126E4/temp)/10
 
-        #Genge (2016) equation 7, use cgs units then convert
-        #so the result will be in [g s-1], but convert to [kg s-1]
-        #dM_evap_dt = 4*pi*(radius*100)**2*c_sp*p_v*sqrt(m_FeO/temp)/1000
-        dM_evap_dt = 4*pi*radius**2*c_sp*p_v*sqrt(m_FeO/(2*pi*gas_const*temp))
+        #Genge equation 7, but the Langmuir formula has been adjusted for SI
+        #units instead of cgs. It's unclear if Genge mixed units here...
+        const = 4.377E-5
+        dM_evap_dt = 4*pi*radius**2*const*p_v*sqrt(m_FeO/(2*pi*gas_const*temp))
+
 
         #to read more about the Langmuir formula see this website:
         #http://www.atsunday.com/2013/07/water-evaporation-rate-per-surface-area.html?m=1
@@ -369,6 +369,9 @@ def simulateParticle(radius, velocity, theta):
 
         total_Fe += dM_Fe_dt*dt
         total_FeO += dM_FeO_dt*dt
+
+        if total_FeO < 0:
+            total_FeO = 0
 
         #genge equation 4
         dq_ox_dt = 3716*dM_FeO_dt
