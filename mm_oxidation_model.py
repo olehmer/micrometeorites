@@ -342,8 +342,7 @@ def simulateParticle(radius, velocity, theta):
 
         #Genge equation 7, but the Langmuir formula has been adjusted for SI
         #units instead of cgs. It's unclear if Genge mixed units here...
-        const = 4.377E-5
-        dM_evap_dt = 4*pi*radius**2*const*p_v*sqrt(m_FeO/(2*pi*gas_const*temp))
+        dM_evap_dt = 4*pi*radius**2*p_v*sqrt(m_FeO/(2*pi*gas_const*temp))
 
 
         #to read more about the Langmuir formula see this website:
@@ -501,7 +500,6 @@ def plotParticleParameters(temps, velocities, rads, altitudes, times):
     """
 
     fig, (ax1,ax2,ax3,ax4) = plt.subplots(4,1, sharex=True)
-    fig.set_size_inches(11,9)
 
     ax1.plot(times,temps)
     ax1.set_ylabel("Temp. [K]")
