@@ -299,7 +299,7 @@ def simulateParticle(radius, velocity, theta):
     #c_sp = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
     #figure 2 in the same paper shows a c_sp of 696 [J K-1 kg-1], so try both?
     #c_sp = 4.377E-5
-    c_sp = 696
+    c_sp = 949.26
 
     #latent heat of vaporization. This value is for silicates and taken from
     #love and Brownlee (1991) by Genge. Genge doesn't say that he uses a 
@@ -338,7 +338,7 @@ def simulateParticle(radius, velocity, theta):
         theta, phi, altitude = positionUpdate(altitude, velocity, theta, phi, dt)
 
         #Genge equation 13, which is in [dynes cm-2], convert to[Pa]
-        p_v = 10**(11.3-2.0126E4/temp)/10
+        p_v = 10**(11.3-2.0126E4/temp)
 
         #Genge equation 7, but the Langmuir formula has been adjusted for SI
         #units instead of cgs. It's unclear if Genge mixed units here...
