@@ -298,13 +298,16 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
     #c_sp = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
     #figure 2 in the same paper shows a c_sp of 696 [J K-1 kg-1], so try both?
     #c_sp = 4.377E-5
-    c_sp = 949.26
+    c_sp = 949.26 #specific heat of FeO from TODO
+    c_sp_Fe = 440 #specific heat of Fe
+    c_sp_Fe3O4 = 619.4 #specific heat of Fe3O4
 
     #latent heat of vaporization. This value is for silicates and taken from
     #love and Brownlee (1991) by Genge. Genge doesn't say that he uses a 
     #different L_v for FeO... But Fe is only slightly different (6.265E6) so 
     #it's probably ok.
-    L_v = 6.050E6 #[J kg-1]
+    L_v = 6.050E6 #latent heat of vaporization for FeO [J kg-1] TODO: is it?
+    L_v_Fe = 6.265E6 #latent heat of vaporization for Fe [j kg-1]
 
     m_FeO = 0.0718 #molecular weight of FeO [kg mol-1]
     m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
