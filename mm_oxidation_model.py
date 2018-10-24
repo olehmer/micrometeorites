@@ -10,11 +10,10 @@
 # Contact info@lehmer.us with questions or comments on this code.
 ###############################################################################
 
-from math import sin,cos,sqrt,atan,asin,pi,exp
+from math import sin, cos, sqrt, atan, asin, pi, exp
+from multiprocessing import Pool, cpu_count
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
-import sys
 
 #Define constants here
 gravity_0 = 9.8 #gravity at Earth's surface [m s-2]
@@ -256,7 +255,7 @@ def updateRadiusAndDensity(M_Fe, M_FeO):
 
 
 
-def simulateParticle(radius, velocity, theta):
+def simulateParticle(radius, velocity, theta, debug_print=False):
     """
     Top level function to simulate a micrometeorite.
 
@@ -311,7 +310,7 @@ def simulateParticle(radius, velocity, theta):
     m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
     m_O = 0.016 #molecular weight of O [kg mol-1]
 
-    max_iter = 3000
+    max_iter = 10000
     dt = 0.01 #time step [s]
     end_index = -1
 
@@ -338,10 +337,9 @@ def simulateParticle(radius, velocity, theta):
         theta, phi, altitude = positionUpdate(altitude, velocity, theta, phi, dt)
 
         #Genge equation 13, which is in [dynes cm-2], convert to[Pa]
-        p_v = 10**(11.3-2.0126E4/temp)
+        p_v = 10**(11.3-2.0126E4/temp)/10
 
         #Genge equation 7, but the Langmuir formula has been adjusted for SI
-        #units instead of cgs. It's unclear if Genge mixed units here...
         dM_evap_dt = 4*pi*radius**2*p_v*sqrt(m_FeO/(2*pi*gas_const*temp))
 
 
@@ -349,11 +347,14 @@ def simulateParticle(radius, velocity, theta):
         #http://www.atsunday.com/2013/07/water-evaporation-rate-per-surface-area.html?m=1
 
         dM_Fe_dt = 0
-        dM_FeO_dt = 0
+
+        #TODO: the evaporation at temps below melting isn't considered. This is
+        #because there is no wustite until the Fe melts in this model, which
+        #means we're going negative in the FeO calculation. Should Fe oxidation
+        #be done here? Genge isn't doing that.
+        dM_FeO_dt = 0 #-dM_evap_dt
 
         #make sure there's some Fe before trying to oxidize it
-#        if temp > FeO_melting_temp:
-#            dM_FeO_dt = -dM_evap_dt 
         if total_Fe > 0 and temp > Fe_metling_temp:
             #equation 11, Fe lost to oxidation [kg s-1]
             dM_Fe_dt = -m_Fe/m_O*rho_o*pi*radius**2*velocity
@@ -369,8 +370,15 @@ def simulateParticle(radius, velocity, theta):
         total_Fe += dM_Fe_dt*dt
         total_FeO += dM_FeO_dt*dt
 
-        if total_FeO < 0:
+        if total_FeO < 0: 
+            #this means the metal bead is exposed, which we don't want to 
+            #consider. If this is the case the bead will evaporate rapidly and
+            #likely disappear. See paper for discussion.
             total_FeO = 0
+            total_Fe = 0
+            radius = 0
+            rho_m = 0
+            break
 
         #genge equation 4
         dq_ox_dt = 3716*dM_FeO_dt
@@ -391,19 +399,19 @@ def simulateParticle(radius, velocity, theta):
         if temp > max_temp:
             max_temp = temp
 
-        try:
-            print("%3d: Fe: %3.0f%%, temp: %5.0f, radius: %0.1f [microns]"%(i,
-                total_Fe/(total_Fe+total_FeO)*100,temp,radius/(1.0E-6)))
+        if debug_print:
+            try:
+                print("%3d: Fe: %3.0f%%, temp: %5.0f, radius: %0.1f [microns]"%(i,
+                    total_Fe/(total_Fe+total_FeO)*100,temp,radius/(1.0E-6)))
 
-            if total_FeO < 0:
-                print("     FeO under 0! %2.2e"%(total_FeO))
-        except:
-            print(total_FeO)
-            print(total_Fe)
-            print(radius)
-            print(temp)
+                if total_FeO < 0:
+                    print("     FeO under 0! %2.2e"%(total_FeO))
+            except:
+                print(total_FeO)
+                print(total_Fe)
+                print(radius)
+                print(temp)
 
-            break
 
         temps[i]=temp
         velocities[i] = velocity
@@ -414,13 +422,15 @@ def simulateParticle(radius, velocity, theta):
         #check if the particle has started cooling significantly
         if temp < max_temp/2 or radius == 0:
             end_index = i
-            print("Early end!")
+            if debug_print:
+                print("Early end!")
             break
 
-    print("\n\nFinal radius: %0.1f [microns]\nMax temperature: %0.0f[K]\nFe mass fraction: %0.2f"%(radius*1.0E6, max_temp, total_Fe/(total_Fe+total_FeO)))
+    if debug_print:
+        print("\n\nFinal radius: %0.1f [microns]\nMax temperature: %0.0f[K]\nFe mass fraction: %0.2f"%(radius*1.0E6, max_temp, total_Fe/(total_Fe+total_FeO)))
 
-    plotParticleParameters(temps[0:end_index+1], velocities[0:end_index+1], 
-            radii[0:end_index+1], altitudes[0:end_index+1], times[0:end_index+1])
+        plotParticleParameters(temps[0:end_index+1], velocities[0:end_index+1], 
+                radii[0:end_index+1], altitudes[0:end_index+1], times[0:end_index+1])
 
     return radius, total_Fe, total_FeO, max_temp
 
@@ -518,10 +528,80 @@ def plotParticleParameters(temps, velocities, rads, altitudes, times):
 
 
 
-simulateParticle(50*1.0E-6, 12000, 45*pi/180)
+
+def multithreadWrapper(args):
+    """
+    This function will pass the multithreaded run arguments to simulateParticle
+    then return the simulation parameters.
+
+    Input:
+        args - a tuple with the form (radius, velocity, impact angle)
+
+    Returns:
+        result - a tuple with the form (radius, total_Fe, total_FeO, max_temp)
+    """
+
+    radius, velocity, theta = args
+    final_radius, total_Fe, total_FeO, max_temp = simulateParticle(radius,
+            velocity, theta)
+
+    result = (final_radius, total_Fe, total_FeO, max_temp)
+    return result
+
+
+def simulationPrint(inputs, results):
+    """
+    Takes the output of the multithreaded simulation and prints it nicely.
+
+    Inputs:
+        inputs - the input array for the model run with form (radius, velocity,
+                 theta)
+        tuples - the results of the simulation with form (final radius, total
+                 Fe, total FeO, max temperature)
+    """
+    for i in range(0, len(inputs)):
+        radius, velocity, theta = inputs[i]
+        print("\n-------------Run %d--------------"%(i))
+        print("Inputs:")
+        print("\tradius: %0.1f [microns]"%(radius/1.0E-6))
+        print("\tvelocity: %0.1f [km s-1]"%(velocity))
+        print("\timpact angle: %0.1f [degrees]"%(theta*180/pi))
+
+        final_radius, total_Fe, total_FeO, max_temp = results[i]
+        Fe_fraction = 0
+        if total_FeO > 0 or total_Fe > 0:
+            Fe_fraction = total_Fe/(total_Fe+total_FeO)
+        print("Results:")
+        print("\tfinal radius: %0.1f [microns]"%(final_radius/1.0E-6))
+        print("\tFe mass percent: %0.1f%%"%(Fe_fraction*100))
+        print("\tmax temperature: %0.0f [K]"%(max_temp))
+
+
+
+def runMultithreadAcrossParams():
+    """
+    Run the simulation across the parameter ranges of initial radius, velocity,
+    and impact angle (theta).
+    """
+    if __name__ == '__main__':
+        radii = np.linspace(50*1.0E-6, 450*1.0E-6, 3)
+        velocities = np.linspace(11200, 18000, 3)
+        thetas = np.linspace(0,80*pi/180, 3)
+
+        args_array = []
+        for i in range(0, len(radii)):
+            for j in range(0, len(velocities)):
+                for k in range(0, len(thetas)):
+                    args = (radii[i], velocities[j], thetas[k])
+                    args_array.append(args)
+
+        with Pool(cpu_count()-1) as p:
+            result = p.map(multithreadWrapper, args_array)
+            simulationPrint(args_array, result)
+
+
+
+
+simulateParticle(50*1.0E-6, 12000, 45*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
-
-
-
-
-
+#runMultithreadAcrossParams()
