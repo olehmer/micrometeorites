@@ -294,7 +294,8 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
     M_Fe = 4/3*pi*radius**3*rho_m #mass of Fe
     M_FeO = 0 #mass of FeO
 
-    #this specific heat was taken from figure 1 of Stolen et al (2015)
+    #this specific heat was taken from figure 1 of Stolen et al (2015),
+    #figure 2 of that paper shows c_sp as 696 though?
     #c_sp = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
     #figure 2 in the same paper shows a c_sp of 696 [J K-1 kg-1], so try both?
     #c_sp = 4.377E-5
@@ -306,8 +307,8 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
     #love and Brownlee (1991) by Genge. Genge doesn't say that he uses a 
     #different L_v for FeO... But Fe is only slightly different (6.265E6) so 
     #it's probably ok.
-    L_v = 6.050E6 #latent heat of vaporization for FeO [J kg-1] TODO: is it?
-    L_v_Fe = 6.265E6 #latent heat of vaporization for Fe [j kg-1]
+    #L_v = 6.050E6 #latent heat of vaporization for FeO [J kg-1] TODO: is it?
+    L_v = 6.265E6 #latent heat of vaporization for Fe [j kg-1]
 
     m_FeO = 0.0718 #molecular weight of FeO [kg mol-1]
     m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
@@ -340,7 +341,8 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         theta, phi, altitude = positionUpdate(altitude, velocity, theta, phi, dt)
 
         #Genge equation 13, which is in [dynes cm-2], convert to[Pa]
-        p_v = 10**(11.3-2.0126E4/temp)/10
+        #p_v = 10**(11.3-2.0126E4/temp)/10
+        p_v = exp(25.93-50390/temp) #ORL derived equation from Wang
 
         #Genge equation 7, but the Langmuir formula has been adjusted for SI
         dM_evap_dt = 4*pi*radius**2*p_v*sqrt(m_FeO/(2*pi*gas_const*temp))
