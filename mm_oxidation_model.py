@@ -291,8 +291,6 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
 
     phi = 0 #initial position around the Earth (always starts at 0)
     altitude = 1.90E5 + earth_rad #initial altitude [m]
-    M_Fe = 4/3*pi*radius**3*rho_m #mass of Fe
-    M_FeO = 0 #mass of FeO
 
     #this specific heat was taken from figure 1 of Stolen et al (2015),
     #figure 2 of that paper shows c_sp as 696 though?
@@ -342,22 +340,41 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
 
         #Genge equation 13, which is in [dynes cm-2], convert to[Pa]
         #p_v = 10**(11.3-2.0126E4/temp)/10
-        p_v = exp(25.93-50390/temp) #ORL derived equation from Wang
-
-        #Genge equation 7, but the Langmuir formula has been adjusted for SI
-        dM_evap_dt = 4*pi*radius**2*p_v*sqrt(m_FeO/(2*pi*gas_const*temp))
+        p_v_FeO = exp(25.93-50390/temp) #ORL derived equation from Wang
+        p_v_Fe = exp(26.5-45210/temp) #ORL derived equation from Wang
 
 
         #to read more about the Langmuir formula see this website:
         #http://www.atsunday.com/2013/07/water-evaporation-rate-per-surface-area.html?m=1
+        #Genge equation 7, but the Langmuir formula has been adjusted for SI
+        #this mass loss rate is in [kg s-1] of FeO
+        dM_evap_dt_FeO = 4*pi*radius**2*p_v_FeO*sqrt(m_FeO/(2*pi*gas_const*temp))
+
+        #the mass evaporation of Fe
+        dM_evap_dt_Fe = 4*pi*radius**2*p_v_Fe*sqrt(m_Fe/(2*pi*gas_const*temp))
+
+        #the total mass lost
+        dM_evap_dt = dM_evap_dt_FeO #this will be updated below
+
+        #evaporate material based on the dM_evap_dt terms. Evaporate FeO first,
+        #then if all FeO is lost during dt evaporate Fe to compensate
+        FeO_loss = dM_evap_dt_FeO*dt
+        Fe_loss = 0
+        if FeO_loss > total_FeO:
+            frac = (1-total_FeO/FeO_loss)
+            new_dt = frac*dt
+            FeO_loss = total_FeO
+            Fe_loss = dM_evap_dt_Fe*new_dt
+
+            #set the total evaporative mass loss here
+            dM_evap_dt = frac*dM_evap_dt_Fe + (1-frac)*dM_evap_dt_FeO
+
+        total_FeO -= FeO_loss
+        total_Fe -= Fe_loss
+
 
         dM_Fe_dt = 0
-
-        #TODO: the evaporation at temps below melting isn't considered. This is
-        #because there is no wustite until the Fe melts in this model, which
-        #means we're going negative in the FeO calculation. Should Fe oxidation
-        #be done here? Genge isn't doing that.
-        dM_FeO_dt = 0 #-dM_evap_dt
+        dM_FeO_dt = 0 
 
         #make sure there's some Fe before trying to oxidize it
         if total_Fe > 0 and temp > Fe_metling_temp:
@@ -365,31 +382,22 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
             dM_Fe_dt = -m_Fe/m_O*rho_o*pi*radius**2*velocity
 
             #equation 12, FeO growth [kg s-1]
-            dM_FeO_dt = m_FeO/m_O*rho_o*pi*radius**2*velocity - dM_evap_dt
+            dM_FeO_dt = m_FeO/m_O*rho_o*pi*radius**2*velocity
 
-            #check if there's any Fe left
-            if total_Fe - dM_Fe_dt*dt < 0:
+            #check if there's any Fe left, remember, dM_Fe_dt is negative
+            if total_Fe + dM_Fe_dt*dt < 0:
                 dM_Fe_dt = -total_Fe/dt
-                dM_FeO_dt = dM_Fe_dt*m_FeO/m_Fe - dM_evap_dt
+                dM_FeO_dt = dM_Fe_dt*m_FeO/m_Fe
 
         total_Fe += dM_Fe_dt*dt
         total_FeO += dM_FeO_dt*dt
-
-        if total_FeO < 0: 
-            #this means the metal bead is exposed, which we don't want to 
-            #consider. If this is the case the bead will evaporate rapidly and
-            #likely disappear. See paper for discussion.
-            total_FeO = 0
-            total_Fe = 0
-            radius = 0
-            rho_m = 0
-            break
-
+      
         #genge equation 4
         dq_ox_dt = 3716*dM_FeO_dt
 
         #equation 6 of Genge (2016). This has the oxidation energy considered
         #which is described by equation 14
+        #NOTE we've assumed L_v is the same for Fe and FeO here
         dT_dt = 1/(radius*c_sp*rho_m)*(3*rho_a*velocity**3/8 - 
                 3*L_v*dM_evap_dt/(4*pi*radius**2) - 3*sigma*temp**4 - 
                 3*dq_ox_dt/(4*pi*radius**2))
@@ -428,7 +436,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         if temp < max_temp/2 or radius == 0:
             end_index = i
             if debug_print:
-                print("Early end!")
+                print("Early end")
             break
 
     if debug_print:
@@ -582,6 +590,53 @@ def simulationPrint(inputs, results):
         print("\tmax temperature: %0.0f [K]"%(max_temp))
 
 
+def plotMultithreadResultsMaxTemp(radii, velocities, thetas, results):
+
+    rad_theta12 = np.zeros((len(radii), len(thetas)))
+    rad_theta14 = np.zeros((len(radii), len(thetas)))
+    rad_theta18 = np.zeros((len(radii), len(thetas)))
+
+    the_len = len(thetas)
+    vel_len = len(velocities)
+
+    for i in range(0, len(radii)):
+        for j in range(0, len(velocities)): #just 3 velocities
+            for k in range(0, len(thetas)):
+                if j == 0:
+                    rad_theta12[k][i] = results[i*vel_len*the_len + 
+                            j*the_len + k][3] #get temp
+
+                if j == 1:
+                    rad_theta14[k][i] = results[i*vel_len*the_len + 
+                            j*the_len + k][3] #get temp
+
+                if j == 2:
+                    rad_theta18[k][i] = results[i*vel_len*the_len + 
+                            j*the_len + k][3] #get temp
+
+    fig, (ax0,ax1,ax2) = plt.subplots(3,1, sharex=True)
+    levels = [1800,1900,2000,2100,2200,2300,2400,2500,2600,2700,2800,2900,3000]
+    CS = ax0.contour(radii/(1.0E-6), thetas*180/pi, rad_theta12, levels)
+    #plt.imshow(rad_theta12, origin="lower", cmap="cool", interpolation="nearest")
+    #plt.gca().invert_yaxis()
+    plt.clabel(CS, inline=1, fontsize=10)
+    #plt.colorbar()
+    ax0.set_ylabel("Entry Angle")
+
+    CS1 = ax1.contour(radii/(1.0E-6), thetas*180/pi, rad_theta14, levels)
+    plt.clabel(CS1, inline=1, fontsize=10)
+    ax1.set_ylabel("Entry Angle")
+
+    CS2 = ax2.contour(radii/(1.0E-6), thetas*180/pi, rad_theta18, levels)
+    plt.clabel(CS2, inline=1, fontsize=10)
+    plt.xlabel("Radius [microns]")
+    plt.ylabel("Entry Angle")
+
+
+    plt.show()
+
+
+
 
 def runMultithreadAcrossParams():
     """
@@ -589,9 +644,13 @@ def runMultithreadAcrossParams():
     and impact angle (theta).
     """
     if __name__ == '__main__':
-        radii = np.linspace(50*1.0E-6, 450*1.0E-6, 3)
-        velocities = np.linspace(11200, 18000, 3)
-        thetas = np.linspace(0,80*pi/180, 3)
+        count = 10
+        radii = np.linspace(50*1.0E-6, 450*1.0E-6, count)
+        velocities = np.linspace(11200, 72000, 3)
+        velocities[0] = 12000
+        velocities[1] = 14000
+        velocities[2] = 18000
+        thetas = np.linspace(0,80*pi/180, count)
 
         args_array = []
         for i in range(0, len(radii)):
@@ -602,11 +661,13 @@ def runMultithreadAcrossParams():
 
         with Pool(cpu_count()-1) as p:
             result = p.map(multithreadWrapper, args_array)
-            simulationPrint(args_array, result)
+            #simulationPrint(args_array, result)
+            plotMultithreadResultsMaxTemp(radii, velocities, thetas, result)
 
 
 
 
-simulateParticle(50*1.0E-6, 12000, 45*pi/180, debug_print=True)
+
+#simulateParticle(50*1.0E-6, 12000, 45*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
-#runMultithreadAcrossParams()
+runMultithreadAcrossParams()
