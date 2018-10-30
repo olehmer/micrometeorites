@@ -312,8 +312,12 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
     m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
     m_O = 0.016 #molecular weight of O [kg mol-1]
 
-    max_iter = 10000
+    max_iter = 10000000
     dt = 0.01 #time step [s]
+    if velocity > 13000:
+        dt = 0.001
+    if velocity > 15000:
+        dt = 0.0001
     end_index = -1
 
     max_temp = 0
@@ -438,6 +442,9 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
             if debug_print:
                 print("Early end")
             break
+
+    if end_index == -1:
+        print("Warning: simulation did not converge before maximum iterations reached")
 
     if debug_print:
         print("\n\nFinal radius: %0.1f [microns]\nMax temperature: %0.0f[K]\nFe mass fraction: %0.2f"%(radius*1.0E6, max_temp, total_Fe/(total_Fe+total_FeO)))
@@ -622,15 +629,18 @@ def plotMultithreadResultsMaxTemp(radii, velocities, thetas, results):
     plt.clabel(CS, inline=1, fontsize=10)
     #plt.colorbar()
     ax0.set_ylabel("Entry Angle")
+    ax0.set_title("12 km/s")
 
     CS1 = ax1.contour(radii/(1.0E-6), thetas*180/pi, rad_theta14, levels)
     plt.clabel(CS1, inline=1, fontsize=10)
     ax1.set_ylabel("Entry Angle")
+    ax1.set_title("14 km/s")
 
     CS2 = ax2.contour(radii/(1.0E-6), thetas*180/pi, rad_theta18, levels)
     plt.clabel(CS2, inline=1, fontsize=10)
     plt.xlabel("Radius [microns]")
     plt.ylabel("Entry Angle")
+    ax2.set_title("18 km/s")
 
 
     plt.show()
@@ -661,7 +671,7 @@ def runMultithreadAcrossParams():
 
         with Pool(cpu_count()-1) as p:
             result = p.map(multithreadWrapper, args_array)
-            #simulationPrint(args_array, result)
+            simulationPrint(args_array, result)
             plotMultithreadResultsMaxTemp(radii, velocities, thetas, result)
 
 
