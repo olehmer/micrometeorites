@@ -12,6 +12,7 @@
 
 from math import sin, cos, sqrt, atan, asin, pi, exp
 from multiprocessing import Pool, cpu_count
+from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -655,13 +656,15 @@ def runMultithreadAcrossParams():
     and impact angle (theta).
     """
     if __name__ == '__main__':
-        count = 10
+        count = 20
         radii = np.linspace(50*1.0E-6, 450*1.0E-6, count)
         velocities = np.linspace(11200, 72000, 3)
         velocities[0] = 12000
         velocities[1] = 14000
         velocities[2] = 18000
         thetas = np.linspace(0,80*pi/180, count)
+
+        length = len(radii)*len(velocities)*len(thetas)
 
         args_array = []
         for i in range(0, len(radii)):
@@ -671,7 +674,8 @@ def runMultithreadAcrossParams():
                     args_array.append(args)
 
         with Pool(cpu_count()-1) as p:
-            result = p.map(multithreadWrapper, args_array)
+            result = list(tqdm(p.imap(multithreadWrapper, args_array), 
+                total=length))
             simulationPrint(args_array, result)
             plotMultithreadResultsMaxTemp(radii, velocities, thetas, result)
 
