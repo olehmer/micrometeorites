@@ -671,8 +671,8 @@ def runMultithreadAcrossParams():
 
         with Pool(cpu_count()-1) as p:
             result = p.map(multithreadWrapper, args_array)
-            simulationPrint(args_array, result)
             plotMultithreadResultsMaxTemp(radii, velocities, thetas, result)
+            simulationPrint(args_array, result)
 
 
 
