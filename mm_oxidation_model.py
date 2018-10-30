@@ -555,7 +555,7 @@ def multithreadWrapper(args):
     then return the simulation parameters.
 
     Input:
-        args - a tuple with the form (radius, velocity, impact angle)
+        args - a tuple with the form (pbar, radius, velocity, impact angle)
 
     Returns:
         result - a tuple with the form (radius, total_Fe, total_FeO, max_temp)
@@ -566,6 +566,7 @@ def multithreadWrapper(args):
             velocity, theta)
 
     result = (final_radius, total_Fe, total_FeO, max_temp)
+
     return result
 
 
@@ -671,9 +672,8 @@ def runMultithreadAcrossParams():
 
         with Pool(cpu_count()-1) as p:
             result = p.map(multithreadWrapper, args_array)
-            plotMultithreadResultsMaxTemp(radii, velocities, thetas, result)
             simulationPrint(args_array, result)
-
+            plotMultithreadResultsMaxTemp(radii, velocities, thetas, result)
 
 
 
