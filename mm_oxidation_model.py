@@ -680,8 +680,72 @@ def runMultithreadAcrossParams():
             plotMultithreadResultsMaxTemp(radii, velocities, thetas, result)
 
 
+def runAndPlotMultithreadSmallerParamRange():
+    """
+    Run the simulation across the parameter ranges of initial radius, velocity,
+    and impact angle (theta).
+    """
+    if __name__ == '__main__':
+        count = 25
+        radii = np.linspace(50*1.0E-6, 450*1.0E-6, count)
+        velocities = np.linspace(11200, 72000, 3)
+        velocities[0] = 12000
+        velocities[1] = 14000
+        velocities[2] = 18000
+        theta = 0
+
+        vel_len = len(velocities)
+        length = len(radii)*len(velocities)
+
+        args_array = []
+        for i in range(0, len(radii)):
+            for j in range(0, len(velocities)):
+                    args = (radii[i], velocities[j], theta)
+                    args_array.append(args)
+
+        with Pool(cpu_count()-1) as p:
+            results = list(tqdm(p.imap(multithreadWrapper, args_array), 
+                total=length))
+
+            simulationPrint(args_array, results)
+
+            rad_theta12 = np.zeros(len(radii))
+            rad_theta14 = np.zeros(len(radii))
+            rad_theta18 = np.zeros(len(radii))
+            for i in range(0, len(radii)):
+                for j in range(0, len(velocities)): #just 3 velocities
+                    if j == 0:
+                        rad_theta12[i] = results[i*vel_len + j][3] #get temp
+
+                    if j == 1:
+                        rad_theta14[i] = results[i*vel_len + j][3] #get temp
+
+                    if j == 2:
+                        rad_theta18[i] = results[i*vel_len + j][3] #get temp
 
 
-simulateParticle(50*1.0E-6, 12000, 45*pi/180, debug_print=True)
+            fig, (ax0,ax1,ax2) = plt.subplots(3,1, sharex=True)
+            ax0.plot(radii/(1.0E-6), rad_theta12)
+            ax0.set_ylabel("Entry Angle")
+            ax0.set_title("12 km/s")
+
+            ax1.plot(radii/(1.0E-6), rad_theta14)
+            ax1.set_ylabel("Entry Angle")
+            ax1.set_title("14 km/s")
+
+            ax2.plot(radii/(1.0E-6), rad_theta18)
+            plt.xlabel("Radius [microns]")
+            plt.ylabel("Entry Angle")
+            ax2.set_title("18 km/s")
+
+
+            plt.show()
+
+
+
+
+#simulateParticle(50*1.0E-6, 12000, 45*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
 #runMultithreadAcrossParams()
+runAndPlotMultithreadSmallerParamRange()
+
