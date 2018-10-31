@@ -314,7 +314,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
     m_O = 0.016 #molecular weight of O [kg mol-1]
 
     max_iter = 10000000
-    dt = 0.0001 #time step [s]
+    dt = 0.01 #time step [s]
     if velocity > 13000:
         dt = 0.001
     if velocity > 15000:
@@ -353,49 +353,49 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         #http://www.atsunday.com/2013/07/water-evaporation-rate-per-surface-area.html?m=1
         #Genge equation 7, but the Langmuir formula has been adjusted for SI
         #this mass loss rate is in [kg s-1] of FeO
-        dM_evap_dt_FeO = 4*pi*ra#dius**2*p_v_feo*sqrt(m_feo/(2*pi*gas_const*temp))
+        dM_evap_dt_FeO = 4*pi*radius**2*p_v_FeO*sqrt(m_FeO/(2*pi*gas_const*temp))
 
-        #the mass evaporation of fe
-        dm_evap_dt_fe = 4*pi*radius**2*p_v_fe*sqrt(m_fe/(2*pi*gas_const*temp))
+        #the mass evaporation of Fe
+        dM_evap_dt_Fe = 4*pi*radius**2*p_v_Fe*sqrt(m_Fe/(2*pi*gas_const*temp))
 
         #the total mass lost
-        dm_evap_dt = dm_evap_dt_feo #this will be updated below
+        dM_evap_dt = dM_evap_dt_FeO #this will be updated below
 
-        #evaporate material based on the dm_evap_dt terms. evaporate feo first,
-        #then if all feo is lost during dt evaporate fe to compensate
-        feo_loss = dm_evap_dt_feo*dt
-        fe_loss = 0
-        if feo_loss > total_feo:
-            frac = (1-total_feo/feo_loss)
+        #evaporate material based on the dM_evap_dt terms. Evaporate FeO first,
+        #then if all FeO is lost during dt evaporate Fe to compensate
+        FeO_loss = dM_evap_dt_FeO*dt
+        Fe_loss = 0
+        if FeO_loss > total_FeO:
+            frac = (1-total_FeO/FeO_loss)
             new_dt = frac*dt
-            feo_loss = total_feo
-            fe_loss = dm_evap_dt_fe*new_dt
+            FeO_loss = total_FeO
+            Fe_loss = dM_evap_dt_Fe*new_dt
 
             #set the total evaporative mass loss here
-            dm_evap_dt = frac*dm_evap_dt_fe + (1-frac)*dm_evap_dt_feo
+            dM_evap_dt = frac*dM_evap_dt_Fe + (1-frac)*dM_evap_dt_FeO
 
-        total_feo -= feo_loss
-        total_fe -= fe_loss
+        total_FeO -= FeO_loss
+        total_Fe -= Fe_loss
 
 
-        dm_fe_dt = 0
-        dm_feo_dt = 0 
+        dM_Fe_dt = 0
+        dM_FeO_dt = 0 
 
-        #make sure there's some fe before trying to oxidize it
-        if total_fe > 0 and temp > fe_metling_temp:
-            #equation 11, fe lost to oxidation [kg s-1]
-            dm_fe_dt = -m_fe/m_o*rho_o*pi*radius**2*velocity
+        #make sure there's some Fe before trying to oxidize it
+        if total_Fe > 0 and temp > Fe_metling_temp:
+            #equation 11, Fe lost to oxidation [kg s-1]
+            dM_Fe_dt = -m_Fe/m_O*rho_o*pi*radius**2*velocity
 
-            #equation 12, feo growth [kg s-1]
-            dm_feo_dt = m_feo/m_o*rho_o*pi*radius**2*velocity
+            #equation 12, FeO growth [kg s-1]
+            dM_FeO_dt = m_FeO/m_O*rho_o*pi*radius**2*velocity
 
-            #check if there's any fe left, remember, dm_fe_dt is negative
-            if total_fe + dm_fe_dt*dt < 0:
-                dm_fe_dt = -total_fe/dt
-                dm_feo_dt = dm_fe_dt*m_feo/m_fe
+            #check if there's any Fe left, remember, dM_Fe_dt is negative
+            if total_Fe + dM_Fe_dt*dt < 0:
+                dM_Fe_dt = -total_Fe/dt
+                dM_FeO_dt = dM_Fe_dt*m_FeO/m_Fe
 
-        total_fe += dm_fe_dt*dt
-        total_feo += dm_feo_dt*dt
+        total_Fe += dM_Fe_dt*dt
+        total_FeO += dM_FeO_dt*dt
       
         #genge equation 4
         dq_ox_dt = 3716*dM_FeO_dt
@@ -656,7 +656,7 @@ def runMultithreadAcrossParams():
     and impact angle (theta).
     """
     if __name__ == '__main__':
-        count = 5
+        count = 20
         radii = np.linspace(50*1.0E-6, 450*1.0E-6, count)
         velocities = np.linspace(11200, 72000, 3)
         velocities[0] = 12000
@@ -680,70 +680,8 @@ def runMultithreadAcrossParams():
             plotMultithreadResultsMaxTemp(radii, velocities, thetas, result)
 
 
-def runAndPlotMultithreadSmallerParamRange():
-    """
-    Run the simulation across the parameter ranges of initial radius, velocity,
-    and impact angle (theta).
-    """
-    if __name__ == '__main__':
-        count = 25
-        radii = np.linspace(50*1.0E-6, 450*1.0E-6, count)
-        velocities = np.linspace(11200, 72000, 3)
-        velocities[0] = 12000
-        velocities[1] = 14000
-        velocities[2] = 18000
-        theta = 0
-
-        vel_len = len(velocities)
-        length = len(radii)*len(velocities)
-
-        args_array = []
-        for i in range(0, len(radii)):
-            for j in range(0, len(velocities)):
-                    args = (radii[i], velocities[j], theta)
-                    args_array.append(args)
-
-        with Pool(cpu_count()-1) as p:
-            results = list(tqdm(p.imap(multithreadWrapper, args_array), 
-                total=length))
-            simulationPrint(args_array, results)
-
-            rad_theta12 = np.zeros(len(radii))
-            rad_theta14 = np.zeros(len(radii))
-            rad_theta18 = np.zeros(len(radii))
-            for i in range(0, len(radii)):
-                for j in range(0, len(velocities)): #just 3 velocities
-                    if j == 0:
-                        rad_theta12[i] = results[i*vel_len + j][3] #get temp
-
-                    if j == 1:
-                        rad_theta14[i] = results[i*vel_len + j][3] #get temp
-
-                    if j == 2:
-                        rad_theta18[i] = results[i*vel_len + j][3] #get temp
 
 
-            fig, (ax0,ax1,ax2) = plt.subplots(3,1, sharex=True)
-            ax0.plot(radii/(1.0E-6), rad_theta12)
-            ax0.set_ylabel("Entry Angle")
-            ax0.set_title("12 km/s")
-
-            ax1.plot(radii/(1.0E-6), rad_theta14)
-            ax1.set_ylabel("Entry Angle")
-            ax1.set_title("14 km/s")
-
-            ax2.plot(radii/(1.0E-6), rad_theta18)
-            plt.xlabel("Radius [microns]")
-            plt.ylabel("Entry Angle")
-            ax2.set_title("18 km/s")
-
-
-            plt.show()
-
-
-
-
-#simulateParticle(50*1.0E-6, 12000, 45*pi/180, debug_print=True)
+simulateParticle(50*1.0E-6, 12000, 45*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
 #runMultithreadAcrossParams()
-runAndPlotMultithreadSmallerParamRange()
