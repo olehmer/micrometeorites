@@ -808,6 +808,7 @@ def plotParticleComparison(measured_rad, measured_core_frac, radii, velocities,
 
         if i==0:
             plt.scatter([-500],[-500],s=5,label="100% Radius Error", c="black")
+            plt.scatter([-500],[-500],s=105,label="50% Radius Error", c="black")
             plt.scatter([-500],[-500],s=205,label="0% Radius Error", c="black")
             plt.legend(scatterpoints=1)
         cbar = plt.colorbar(sc)
