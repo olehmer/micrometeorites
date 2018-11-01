@@ -314,7 +314,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
     m_O = 0.016 #molecular weight of O [kg mol-1]
 
     max_iter = 10000000
-    dt = 0.01 #time step [s]
+    dt = 0.001 #time step [s]
     if velocity > 13000:
         dt = 0.001
     if velocity > 15000:
@@ -361,6 +361,28 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         #the total mass lost
         dM_evap_dt = dM_evap_dt_FeO #this will be updated below
 
+
+        #handle the oxidation of the Fe to FeO here
+        dM_Fe_dt = 0
+        dM_FeO_dt = 0 
+
+        #make sure there's some Fe before trying to oxidize it
+        if total_Fe > 0 and temp > Fe_metling_temp:
+            #equation 11, Fe lost to oxidation [kg s-1]
+            dM_Fe_dt = -m_Fe/m_O*rho_o*pi*radius**2*velocity
+
+            #equation 12, FeO growth [kg s-1]
+            dM_FeO_dt = m_FeO/m_O*rho_o*pi*radius**2*velocity
+
+            #check if there's any Fe left, remember, dM_Fe_dt is negative
+            if total_Fe + dM_Fe_dt*dt < 0:
+                dM_Fe_dt = -total_Fe/dt
+                dM_FeO_dt = dM_Fe_dt*m_FeO/m_Fe
+
+        total_Fe += dM_Fe_dt*dt #dM_Fe_dt is already negative
+        total_FeO += dM_FeO_dt*dt
+
+
         #evaporate material based on the dM_evap_dt terms. Evaporate FeO first,
         #then if all FeO is lost during dt evaporate Fe to compensate
         FeO_loss = dM_evap_dt_FeO*dt
@@ -378,25 +400,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         total_Fe -= Fe_loss
 
 
-        dM_Fe_dt = 0
-        dM_FeO_dt = 0 
-
-        #make sure there's some Fe before trying to oxidize it
-        if total_Fe > 0 and temp > Fe_metling_temp:
-            #equation 11, Fe lost to oxidation [kg s-1]
-            dM_Fe_dt = -m_Fe/m_O*rho_o*pi*radius**2*velocity
-
-            #equation 12, FeO growth [kg s-1]
-            dM_FeO_dt = m_FeO/m_O*rho_o*pi*radius**2*velocity
-
-            #check if there's any Fe left, remember, dM_Fe_dt is negative
-            if total_Fe + dM_Fe_dt*dt < 0:
-                dM_Fe_dt = -total_Fe/dt
-                dM_FeO_dt = dM_Fe_dt*m_FeO/m_Fe
-
-        total_Fe += dM_Fe_dt*dt
-        total_FeO += dM_FeO_dt*dt
-      
+              
         #genge equation 4
         dq_ox_dt = 3716*dM_FeO_dt
 
@@ -656,13 +660,15 @@ def runMultithreadAcrossParams():
     and impact angle (theta).
     """
     if __name__ == '__main__':
-        count = 20
-        radii = np.linspace(50*1.0E-6, 450*1.0E-6, count)
-        velocities = np.linspace(11200, 72000, 3)
-        velocities[0] = 12000
-        velocities[1] = 14000
-        velocities[2] = 18000
-        thetas = np.linspace(0,80*pi/180, count)
+        rad_count = 5
+        vel_count = 5
+        the_count = 3
+        radii = np.linspace(50*1.0E-6, 450*1.0E-6, rad_count)
+        velocities = np.linspace(11200, 16000, vel_count)
+#        velocities[0] = 12000
+#        velocities[1] = 14000
+#        velocities[2] = 18000
+        thetas = np.linspace(30*pi/180,80*pi/180, the_count)
 
         length = len(radii)*len(velocities)*len(thetas)
 
@@ -674,10 +680,12 @@ def runMultithreadAcrossParams():
                     args_array.append(args)
 
         with Pool(cpu_count()-1) as p:
-            result = list(tqdm(p.imap(multithreadWrapper, args_array), 
+            results = list(tqdm(p.imap(multithreadWrapper, args_array), 
                 total=length))
-            simulationPrint(args_array, result)
-            plotMultithreadResultsMaxTemp(radii, velocities, thetas, result)
+            #simulationPrint(args_array, results)
+            #plotMultithreadResultsMaxTemp(radii, velocities, thetas, results)
+            plotParticleComparison(100*1.0E-6, 0.2, radii, velocities, thetas, results, 
+                    args_array)
 
 
 def runAndPlotMultithreadSmallerParamRange():
@@ -743,9 +751,80 @@ def runAndPlotMultithreadSmallerParamRange():
 
 
 
+def plotParticleComparison(measured_rad, measured_core_frac, radii, velocities,
+        thetas, results, inputs):
+    """
+    This function will plot the model output across all parameter ranges of 
+    velocity and initial radius. Multiple plots will be generated for the impact
+    angle. The size of the points reflects the closeness to the measured radius
+    (with smaller be further away) and the color bar indicates the core fraction
+    of the model compared to the measured core fraction.
+
+    Inputs:
+        measured_rad       - the measured radius of a micrometeorite [m]
+        measured_core_frac - the measured Fe core fraction [0-1]
+        radii              - radii used in model run [m]
+        velocities         - velocities used in model run [m s-1]
+        thetas             - the impact angles to plot
+        results            - the results of the model run (4-tuples)
+        inputs             - the inputs for the model run (3-tuples)
+    """
+
+    the_len = len(thetas)
+    micron = 1.0E-6
+    sc = None
+
+    cm = plt.cm.get_cmap("winter")
+
+    for i in range(the_len):
+        ax = plt.subplot(the_len,1,i+1)
+        ax.set_xlim(np.min(radii)/micron, np.max(radii)/micron)
+        ax.set_ylim(np.min(velocities)/1000, np.max(velocities)/1000)
+        ax.set_ylabel(r"Velocity [km s$^{-1}$]")
+        title = r"Impact Angle: %0.0f$^{\degree}$"%(thetas[i]*180/pi)
+        ax.text(0.025, 0.85, title, transform=ax.transAxes, 
+                bbox=dict(facecolor="red", alpha=0.5))
+
+        #remove the tick labels from all but the last one
+        if i != the_len-1:
+            ax.set_xticklabels([])
+
+
+        for j in range(len(inputs)):
+            if inputs[j][2] == thetas[i]:
+                final_radius, total_Fe, total_FeO, max_temp = results[j]
+                core_frac = total_Fe/(total_Fe+total_FeO)
+                z = (core_frac-measured_core_frac)/measured_core_frac*100
+                if z > 100:
+                    z = 100
+
+                size_frac = (final_radius-measured_rad)/measured_rad
+                if size_frac > 1:
+                    size_frac = 1
+                size = (1 - size_frac)*200 + 5
+
+                sc = ax.scatter([inputs[j][0]/micron], [inputs[j][1]/1000],
+                        c=z, vmin=0, vmax=100, s=size, cmap=cm, edgecolor='none')
+
+        if i==0:
+            plt.scatter([-500],[-500],s=5,label="100% Radius Error", c="black")
+            plt.scatter([-500],[-500],s=205,label="0% Radius Error", c="black")
+            plt.legend(scatterpoints=1)
+        cbar = plt.colorbar(sc)
+        cbar.set_label("Core Mass Percent Error")
+
+
+    plt.gca().set_xlabel(r"Radius [$\mu$m]")
+    plt.subplots_adjust(hspace=0.05)
+    plt.show()
+
+
+
+
+
 
 #simulateParticle(50*1.0E-6, 12000, 45*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
-#runMultithreadAcrossParams()
-runAndPlotMultithreadSmallerParamRange()
+runMultithreadAcrossParams()
+#runAndPlotMultithreadSmallerParamRange()
 
