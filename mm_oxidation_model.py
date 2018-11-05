@@ -869,7 +869,13 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
             if inputs[j][2] == theta_vals[i]:
                 final_radius, total_Fe, total_FeO, max_temp = results[j]
                 core_frac = total_Fe/(total_Fe+total_FeO)
-                z = abs(core_frac-measured_core_frac)/measured_core_frac*100
+
+                z = 0
+                if measured_core_frac == 0:
+                    #in case there was no observed core
+                    z = core_frac*100
+                else:
+                    z = abs(core_frac-measured_core_frac)/measured_core_frac*100
                 if z > 100:
                     z = 100
 
@@ -902,7 +908,8 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
 #simulateParticle(450*1.0E-6, 12000, 0*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
 #runMultithreadAcrossParams()
-#plotParticleComparison(6.2*1.0E-6, 0.2, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
-plotMultithreadResultsRadiusVsTheta(param=0)
+#plotParticleComparison(3.2*1.0E-6, 0.95, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
+plotParticleComparison(37.5*1.0E-6, 0, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
+#plotMultithreadResultsRadiusVsTheta(param=0)
 #printSimulationFromFiles()
 
