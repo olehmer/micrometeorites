@@ -575,6 +575,15 @@ def multithreadWrapper(args):
     return result
 
 
+def printSimulationFromFiles():
+    """
+    Wrapper to print simulation results from files.
+    """
+    inputs = readModelDataFile("output/args_array.dat")
+    results = readModelDataFile("output/results.dat")
+
+    simulationPrint(inputs, results)
+
 def simulationPrint(inputs, results):
     """
     Takes the output of the multithreaded simulation and prints it nicely.
@@ -599,11 +608,37 @@ def simulationPrint(inputs, results):
             Fe_fraction = total_Fe/(total_Fe+total_FeO)
         print("Results:")
         print("\tfinal radius: %0.1f [microns]"%(final_radius/1.0E-6))
+        print("\tFe total mass: %2.2e [kg]"%(total_Fe))
+        print("\tFeO total mass: %2.2e [kg]"%(total_FeO))
         print("\tFe mass percent: %0.1f%%"%(Fe_fraction*100))
         print("\tmax temperature: %0.0f [K]"%(max_temp))
 
 
-def plotMultithreadResultsMaxTemp(radii, velocities, thetas, results):
+def plotMultithreadResultsRadiusVsTheta(param=3):
+    """
+    Plot the particle radius vs impact parameter for various velocities. The 
+    displayed output is specified by param, which defaults to maximum temp.
+
+    Inputs:
+        param         - the chosen result to display, the options are:
+                            0: final radius [microns]
+                            1: total Fe remaining [kg]
+                            2: total FeO remaining [kg]
+                            3: maximum temperature [K]
+                            4: Fe mass fraction
+                            5: total mass [kg]
+    """
+    #TODO implement the 5 parameters correctly!
+
+    radii = np.array(readModelDataFile("output/radii.dat"))
+    velocities = np.array(readModelDataFile("output/velocities.dat"))
+    thetas = np.array(readModelDataFile("output/thetas.dat"))
+    results = readModelDataFile("output/results.dat")
+
+
+    #the velocities to display (well, the closest available in the dataset)
+    velocities_in = np.array([12000, 14000, 18000])
+
 
     rad_theta12 = np.zeros((len(radii), len(thetas)))
     rad_theta14 = np.zeros((len(radii), len(thetas)))
@@ -612,63 +647,151 @@ def plotMultithreadResultsMaxTemp(radii, velocities, thetas, results):
     the_len = len(thetas)
     vel_len = len(velocities)
 
+    velocity_vals = []
+    for vel in velocities_in:
+        index = np.abs(velocities - vel).argmin()
+        velocity_vals.append(velocities[index])
+
     for i in range(0, len(radii)):
         for j in range(0, len(velocities)): #just 3 velocities
             for k in range(0, len(thetas)):
-                if j == 0:
-                    rad_theta12[k][i] = results[i*vel_len*the_len + 
-                            j*the_len + k][3] #get temp
+                if velocities[j] == velocity_vals[0]:
+                    if param == 3: 
+                        rad_theta12[k][i] = results[i*vel_len*the_len + 
+                                j*the_len + k][param] 
+                    elif param == 0:
+                        rad_theta12[k][i] = results[i*vel_len*the_len + 
+                                j*the_len + k][param]/1.0E-6
+                    else:
+                        Fe_mass = results[i*vel_len*the_len + j*the_len + 
+                                k][1]
+                        FeO_mass = results[i*vel_len*the_len + j*the_len + 
+                                k][2]
+                        rad_theta12[k][i] = Fe_mass/(Fe_mass+FeO_mass)
 
-                if j == 1:
-                    rad_theta14[k][i] = results[i*vel_len*the_len + 
-                            j*the_len + k][3] #get temp
+                if velocities[j] == velocity_vals[1]:
+                    if param == 3: 
+                        rad_theta14[k][i] = results[i*vel_len*the_len + 
+                                j*the_len + k][param] 
+                    elif param == 0:
+                        rad_theta14[k][i] = results[i*vel_len*the_len + 
+                                j*the_len + k][param]/1.0E-6
+                    else:
+                        Fe_mass = results[i*vel_len*the_len + j*the_len + 
+                                k][1]
+                        FeO_mass = results[i*vel_len*the_len + j*the_len + 
+                                k][2]
+                        rad_theta14[k][i] = Fe_mass/(Fe_mass+FeO_mass)
 
-                if j == 2:
-                    rad_theta18[k][i] = results[i*vel_len*the_len + 
-                            j*the_len + k][3] #get temp
+                if  velocities[j] == velocity_vals[2]:
+                    if param == 3: 
+                        rad_theta18[k][i] = results[i*vel_len*the_len + 
+                                j*the_len + k][param] 
+                    elif param == 0:
+                        rad_theta18[k][i] = results[i*vel_len*the_len + 
+                                j*the_len + k][param]/1.0E-6
+                    else:
+                        Fe_mass = results[i*vel_len*the_len + j*the_len + 
+                                k][1]
+                        FeO_mass = results[i*vel_len*the_len + j*the_len + 
+                                k][2]
+                        rad_theta18[k][i] = Fe_mass/(Fe_mass+FeO_mass)
 
     fig, (ax0,ax1,ax2) = plt.subplots(3,1, sharex=True)
-    levels = [1800,1900,2000,2100,2200,2300,2400,2500,2600,2700,2800,2900,3000]
+    levels = np.linspace(0, 500, 31)
+    if param == 3:
+        levels = [1800,1900,2000,2100,2200,2300,2400,2500,2600,2700,2800,2900,3000]
+    elif param == 2 or param == 1:
+        levels = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
     CS = ax0.contour(radii/(1.0E-6), thetas*180/pi, rad_theta12, levels)
     #plt.imshow(rad_theta12, origin="lower", cmap="cool", interpolation="nearest")
+    #plt.colorbar()
     #plt.gca().invert_yaxis()
     plt.clabel(CS, inline=1, fontsize=10)
-    #plt.colorbar()
     ax0.set_ylabel("Entry Angle")
-    ax0.set_title("12 km/s")
+    ax0.set_title(r"%0.1f [km s$^{-1}$]"%(velocity_vals[0]/1000))
 
     CS1 = ax1.contour(radii/(1.0E-6), thetas*180/pi, rad_theta14, levels)
     plt.clabel(CS1, inline=1, fontsize=10)
     ax1.set_ylabel("Entry Angle")
-    ax1.set_title("14 km/s")
+    ax1.set_title(r"%0.1f [km s$^{-1}$]"%(velocity_vals[1]/1000))
 
     CS2 = ax2.contour(radii/(1.0E-6), thetas*180/pi, rad_theta18, levels)
     plt.clabel(CS2, inline=1, fontsize=10)
     plt.xlabel("Radius [microns]")
     plt.ylabel("Entry Angle")
-    ax2.set_title("18 km/s")
+    ax2.set_title(r"%0.1f [km s$^{-1}$]"%(velocity_vals[2]/1000))
 
 
     plt.show()
 
 
+def readModelDataFile(filename):
+    """
+    Read the data from an output file.
+
+    Inputs:
+        filename - the file to read
+
+    Returns:
+        result - the data from the file
+    """
+    
+    file_obj = open(filename, "r")
+    result = []
+
+    for line in file_obj:
+        line_split = line.split()
+        if len(line_split) == 1:
+            num_val = float(line_split[0])
+            result.append(num_val)
+        else:
+            nums = []
+            for num in line_split:
+                num_val = float(num)
+                nums.append(num_val)
+            result.append(tuple(nums))
+
+    return result
+
+def saveModelData(data, filename):
+    """
+    Takes an array and saves it to a file.
+
+    Inputs:
+        data     - input array to save
+        filename - the filename to use for the data
+    """
+
+    file_obj = open(filename, "w")
+    for d in data:
+        line = ""
+        if isinstance(d, tuple):
+            for item in d:
+                line += "%2.10e "%item
+        else:
+            line += "%2.10e"%d
+        line += "\n"
+        file_obj.write(line)
+    file_obj.close()
 
 
-def runMultithreadAcrossParams():
+
+def runMultithreadAcrossParams(debug_print=False):
     """
     Run the simulation across the parameter ranges of initial radius, velocity,
     and impact angle (theta).
+
+    Inputs:
+        debug_print - set to true to print out model results.
     """
     if __name__ == '__main__':
-        rad_count = 5
-        vel_count = 5
-        the_count = 3
+        rad_count = 30
+        vel_count = 30
+        the_count = 30
         radii = np.linspace(50*1.0E-6, 450*1.0E-6, rad_count)
-        velocities = np.linspace(11200, 16000, vel_count)
-#        velocities[0] = 12000
-#        velocities[1] = 14000
-#        velocities[2] = 18000
-        thetas = np.linspace(30*pi/180,80*pi/180, the_count)
+        velocities = np.linspace(11200, 36000, vel_count)
+        thetas = np.linspace(0*pi/180,80*pi/180, the_count)
 
         length = len(radii)*len(velocities)*len(thetas)
 
@@ -682,77 +805,17 @@ def runMultithreadAcrossParams():
         with Pool(cpu_count()-1) as p:
             results = list(tqdm(p.imap(multithreadWrapper, args_array), 
                 total=length))
-            #simulationPrint(args_array, results)
-            #plotMultithreadResultsMaxTemp(radii, velocities, thetas, results)
-            plotParticleComparison(100*1.0E-6, 0.2, radii, velocities, thetas, results, 
-                    args_array)
-
-
-def runAndPlotMultithreadSmallerParamRange():
-    """
-    Run the simulation across the parameter ranges of initial radius, velocity,
-    and impact angle (theta).
-    """
-    if __name__ == '__main__':
-        count = 25
-        radii = np.linspace(50*1.0E-6, 450*1.0E-6, count)
-        velocities = np.linspace(11200, 72000, 3)
-        velocities[0] = 12000
-        velocities[1] = 14000
-        velocities[2] = 18000
-        theta = 0
-
-        vel_len = len(velocities)
-        length = len(radii)*len(velocities)
-
-        args_array = []
-        for i in range(0, len(radii)):
-            for j in range(0, len(velocities)):
-                    args = (radii[i], velocities[j], theta)
-                    args_array.append(args)
-
-        with Pool(cpu_count()-1) as p:
-            results = list(tqdm(p.imap(multithreadWrapper, args_array), 
-                total=length))
-
-            simulationPrint(args_array, results)
-
-            rad_theta12 = np.zeros(len(radii))
-            rad_theta14 = np.zeros(len(radii))
-            rad_theta18 = np.zeros(len(radii))
-            for i in range(0, len(radii)):
-                for j in range(0, len(velocities)): #just 3 velocities
-                    if j == 0:
-                        rad_theta12[i] = results[i*vel_len + j][3] #get temp
-
-                    if j == 1:
-                        rad_theta14[i] = results[i*vel_len + j][3] #get temp
-
-                    if j == 2:
-                        rad_theta18[i] = results[i*vel_len + j][3] #get temp
-
-
-            fig, (ax0,ax1,ax2) = plt.subplots(3,1, sharex=True)
-            ax0.plot(radii/(1.0E-6), rad_theta12)
-            ax0.set_ylabel("Entry Angle")
-            ax0.set_title("12 km/s")
-
-            ax1.plot(radii/(1.0E-6), rad_theta14)
-            ax1.set_ylabel("Entry Angle")
-            ax1.set_title("14 km/s")
-
-            ax2.plot(radii/(1.0E-6), rad_theta18)
-            plt.xlabel("Radius [microns]")
-            plt.ylabel("Entry Angle")
-            ax2.set_title("18 km/s")
-
-
-            plt.show()
+            if debug_print:
+                simulationPrint(args_array, results)
+            saveModelData(radii, "output/radii.dat")
+            saveModelData(velocities, "output/velocities.dat")
+            saveModelData(thetas, "output/thetas.dat")
+            saveModelData(args_array, "output/args_array.dat")
+            saveModelData(results, "output/results.dat")
 
 
 
-def plotParticleComparison(measured_rad, measured_core_frac, radii, velocities,
-        thetas, results, inputs):
+def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
     """
     This function will plot the model output across all parameter ranges of 
     velocity and initial radius. Multiple plots will be generated for the impact
@@ -763,14 +826,26 @@ def plotParticleComparison(measured_rad, measured_core_frac, radii, velocities,
     Inputs:
         measured_rad       - the measured radius of a micrometeorite [m]
         measured_core_frac - the measured Fe core fraction [0-1]
-        radii              - radii used in model run [m]
-        velocities         - velocities used in model run [m s-1]
-        thetas             - the impact angles to plot
-        results            - the results of the model run (4-tuples)
-        inputs             - the inputs for the model run (3-tuples)
+        thetas_in          - the theta values to use in the plot
+
+    NOTE: the thetas plotted will be the closest thetas found in the data file.
+    If the theta you want isn't exactly correct just rerun the data files to 
+    ensure the exact value you want is included.
     """
 
-    the_len = len(thetas)
+    radii = np.array(readModelDataFile("output/radii.dat"))
+    velocities = np.array(readModelDataFile("output/velocities.dat"))
+    thetas = np.array(readModelDataFile("output/thetas.dat"))
+    inputs = readModelDataFile("output/args_array.dat")
+    results = readModelDataFile("output/results.dat")
+
+    theta_vals = []
+    for theta in thetas_in:
+        index = np.abs(thetas - theta).argmin()
+        theta_vals.append(thetas[index])
+
+
+    the_len = len(theta_vals)
     micron = 1.0E-6
     sc = None
 
@@ -781,7 +856,7 @@ def plotParticleComparison(measured_rad, measured_core_frac, radii, velocities,
         ax.set_xlim(np.min(radii)/micron, np.max(radii)/micron)
         ax.set_ylim(np.min(velocities)/1000, np.max(velocities)/1000)
         ax.set_ylabel(r"Velocity [km s$^{-1}$]")
-        title = r"Impact Angle: %0.0f$^{\degree}$"%(thetas[i]*180/pi)
+        title = r"Impact Angle: %0.0f$^{\degree}$"%(theta_vals[i]*180/pi)
         ax.text(0.025, 0.85, title, transform=ax.transAxes, 
                 bbox=dict(facecolor="red", alpha=0.5))
 
@@ -791,14 +866,14 @@ def plotParticleComparison(measured_rad, measured_core_frac, radii, velocities,
 
 
         for j in range(len(inputs)):
-            if inputs[j][2] == thetas[i]:
+            if inputs[j][2] == theta_vals[i]:
                 final_radius, total_Fe, total_FeO, max_temp = results[j]
                 core_frac = total_Fe/(total_Fe+total_FeO)
-                z = (core_frac-measured_core_frac)/measured_core_frac*100
+                z = abs(core_frac-measured_core_frac)/measured_core_frac*100
                 if z > 100:
                     z = 100
 
-                size_frac = (final_radius-measured_rad)/measured_rad
+                size_frac = abs(final_radius-measured_rad)/measured_rad
                 if size_frac > 1:
                     size_frac = 1
                 size = (1 - size_frac)*200 + 5
@@ -812,7 +887,7 @@ def plotParticleComparison(measured_rad, measured_core_frac, radii, velocities,
             plt.scatter([-500],[-500],s=205,label="0% Radius Error", c="black")
             plt.legend(scatterpoints=1)
         cbar = plt.colorbar(sc)
-        cbar.set_label("Core Mass Percent Error")
+        cbar.set_label("Core Mass\nPercent Error")
 
 
     plt.gca().set_xlabel(r"Radius [$\mu$m]")
@@ -824,8 +899,10 @@ def plotParticleComparison(measured_rad, measured_core_frac, radii, velocities,
 
 
 
-#simulateParticle(50*1.0E-6, 12000, 45*pi/180, debug_print=True)
+#simulateParticle(450*1.0E-6, 12000, 0*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
-runMultithreadAcrossParams()
-#runAndPlotMultithreadSmallerParamRange()
+#runMultithreadAcrossParams()
+#plotParticleComparison(6.2*1.0E-6, 0.2, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
+plotMultithreadResultsRadiusVsTheta(param=0)
+#printSimulationFromFiles()
 
