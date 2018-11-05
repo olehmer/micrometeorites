@@ -339,6 +339,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
             rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
                     scale_height, m_bar)
             rho_o = rho_a*0.21 #just use 21% oxygen at this point
+        rho_o = rho_a*0.01 #TODO ORL delte this
         velocity, theta = velocityUpdate(theta, velocity, rho_a, rho_m, radius, 
                 dt, altitude)
         theta, phi, altitude = positionUpdate(altitude, velocity, theta, phi, dt)
@@ -907,9 +908,14 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
 
 #simulateParticle(450*1.0E-6, 12000, 0*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
-#runMultithreadAcrossParams()
+runMultithreadAcrossParams()
+
+#plot for Figure 1e (only one with Fe core)
 #plotParticleComparison(3.2*1.0E-6, 0.95, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
-plotParticleComparison(37.5*1.0E-6, 0, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
+
+#plot for Figure 1f, pure wustite
+#plotParticleComparison(37.5*1.0E-6, 0, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
+
 #plotMultithreadResultsRadiusVsTheta(param=0)
 #printSimulationFromFiles()
 
