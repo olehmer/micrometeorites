@@ -13,6 +13,7 @@
 from math import sin, cos, sqrt, atan, asin, pi, exp
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
+from scipy import stats, integrate
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -23,6 +24,90 @@ kb = 1.381E-23 #Boltzmann constant [J K-1]
 proton_mass = 1.67E-27 #mass of a proton [kg]
 sigma = 5.67E-8 #Stefan-Boltzmann constant [W m-2 K-4]
 gas_const = 8.314 #ideal gas constant [J mol-1 K-1]
+
+
+class impactAngleDistribution(stats.rv_continuous):
+    """
+    The probability distribution of impact angles. This class will generate
+    random entry angles from the distribution defined in Love and Brownlee 
+    (1991).
+    """
+
+    def __init__(self):
+        """
+        Set the lower limit to 0 degrees and the upper limit to 90 degrees
+        """
+        super().__init__(a=0, b=pi/2)
+
+    def _pdf(self, x):
+        prob = 0
+        if x>0 and x<pi/2:
+            #between 0 and 90 degress
+            prob = sin(2*x)
+        return prob
+
+    def sample(self, size=1, random_state=None):
+        return self.rvs(size=size, random_state=random_state)
+
+
+class initialVelocityDistribution(stats.rv_continuous):
+    """
+    The probability distribution of initial velocity. This class will generate
+    random initial velocities from the distribution defined in Love and Brownlee 
+    (1991).
+
+    Note: the values generated from sample are in [km s-1]
+    """
+
+    def __init__(self):
+        """
+        Set the lower limit to 11.2 [km s-1] and the upper to 72 [km s-1]
+        """
+        super().__init__(a=11.2, b=72)
+
+
+    def _pdf(self, x):
+        prob = 0
+        if x>11.2:
+            prob = 1.791E5*x**-5.394
+        return prob
+
+    def sample(self, size=1, random_state=None):
+        return self.rvs(size=size, random_state=random_state)
+
+
+class initialRadiusDistribution(stats.rv_continuous):
+    """
+    The probability distribution of initial mass. This class will generate
+    random initial masses from the distribution defined in Love and Brownlee 
+    (1991).
+
+    Note: the values generated from the PDF are in [g], but converted to radius
+    in the sample function.
+    """
+
+    def __init__(self):
+        """
+        Set the lower limit to 3.665E-9 [g] (5 [micron] Fe radius) and the upper 
+        0.02932 [g] (1000 [micron] Fe radius).
+        """
+        super().__init__(a=3.665E-9, b=0.02932)
+
+
+    def _pdf(self, x):
+        prob = 0
+        if x>3.665E-9 and x<0.02932:
+            prob = (2.2E3*x**0.306+15)**-4.38 + 1.3E-9*(x + 10**11*x**2 + 
+                    10**27*x**4)**-0.36
+        return prob
+
+    def sample(self, size=1, random_state=None):
+        result = self.rvs(size=size, random_state=random_state)
+        result = result/1000 #convert from g to kg
+        result = result/7000 #convert mass to volume for Fe, rho=7000 [kg m-3]
+        result = (result*3/(4*pi))**(1/3) #convert volume to radius [m]
+        return result
+
 
 
 def US1976StandardAtmosphere(altitude):
@@ -902,6 +987,27 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
     plt.show()
 
 
+def testDist(dist):
+    """
+    Test the sample distribution passed in.
+
+    Inputs:
+        dist - the instance of the rv_continuous class to use
+    """
+
+    samples = dist.sample(size=10000)
+    sample_min = np.min(samples)
+    sample_max = np.max(samples)
+
+    pdf_x = np.linspace(sample_min, sample_max, 50)
+    pdf_y = np.zeros_like(pdf_x)
+    for i in range(len(pdf_x)):
+        pdf_y[i] = dist.pdf(pdf_x[i])
+
+    plt.hist(samples, bins=100, normed=True)
+    plt.plot(pdf_x, pdf_y, 'r')
+    
+    plt.show()
 
 
 
@@ -914,8 +1020,11 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
 #plotParticleComparison(3.2*1.0E-6, 0.95, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
 
 #plot for Figure 1f, pure wustite
-plotParticleComparison(37.5*1.0E-6, 0, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
+#plotParticleComparison(37.5*1.0E-6, 0, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
 
 #plotMultithreadResultsRadiusVsTheta(param=0)
 #printSimulationFromFiles()
 
+#testDist(impactAngleDistribution())
+#testDist(initialVelocityDistribution())
+testDist(initialRadiusDistribution())
