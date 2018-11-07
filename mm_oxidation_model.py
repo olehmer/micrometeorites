@@ -97,8 +97,9 @@ class initialRadiusDistribution(stats.rv_continuous):
     def _pdf(self, x):
         prob = 0
         if x>3.665E-9 and x<0.02932:
-            prob = (2.2E3*x**0.306+15)**-4.38 + 1.3E-9*(x + 10**11*x**2 + 
-                    10**27*x**4)**-0.36
+            prob = ((2.2E3*x**0.306+15)**-4.38 + 1.3E-9*(x + 10**11*x**2 + 
+                    10**27*x**4)**-0.36)/4.50936E-13
+            prob = float(prob)
         return prob
 
     def sample(self, size=1, random_state=None):
@@ -919,11 +920,11 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
     ensure the exact value you want is included.
     """
 
-    radii = np.array(readModelDataFile("output/radii.dat"))
-    velocities = np.array(readModelDataFile("output/velocities.dat"))
-    thetas = np.array(readModelDataFile("output/thetas.dat"))
-    inputs = readModelDataFile("output/args_array.dat")
-    results = readModelDataFile("output/results.dat")
+    radii = np.array(readModelDataFile("output_modern_O2/radii.dat"))
+    velocities = np.array(readModelDataFile("output_modern_O2/velocities.dat"))
+    thetas = np.array(readModelDataFile("output_modern_O2/thetas.dat"))
+    inputs = readModelDataFile("output_modern_O2/args_array.dat")
+    results = readModelDataFile("output_modern_O2/results.dat")
 
     theta_vals = []
     for theta in thetas_in:
@@ -971,7 +972,7 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
                 size = (1 - size_frac)*200 + 5
 
                 sc = ax.scatter([inputs[j][0]/micron], [inputs[j][1]/1000],
-                        c=z, vmin=0, vmax=100, s=size, cmap=cm, edgecolor='none')
+                        c=[z], vmin=0, vmax=100, s=size, cmap=cm, edgecolor='none')
 
         if i==0:
             plt.scatter([-500],[-500],s=5,label="100% Radius Error", c="black")
@@ -1001,6 +1002,7 @@ def testDist(dist):
 
     pdf_x = np.linspace(sample_min, sample_max, 50)
     pdf_y = np.zeros_like(pdf_x)
+
     for i in range(len(pdf_x)):
         pdf_y[i] = dist.pdf(pdf_x[i])
 
