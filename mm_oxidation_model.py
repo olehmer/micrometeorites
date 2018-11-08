@@ -16,6 +16,7 @@ from tqdm import tqdm
 from scipy import stats, integrate
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 #Define constants here
 gravity_0 = 9.8 #gravity at Earth's surface [m s-2]
@@ -76,14 +77,13 @@ class initialVelocityDistribution(stats.rv_continuous):
         return self.rvs(size=size, random_state=random_state)
 
 
-class initialRadiusDistribution(stats.rv_continuous):
+class initialMassDistribution(stats.rv_continuous):
     """
     The probability distribution of initial mass. This class will generate
     random initial masses from the distribution defined in Love and Brownlee 
-    (1991).
+    (1991). The masses can easily be converted to initial radii.
 
-    Note: the values generated from the PDF are in [g], but converted to radius
-    in the sample function.
+    Note: the values generated from the PDF are in [g]
     """
 
     def __init__(self):
@@ -103,11 +103,7 @@ class initialRadiusDistribution(stats.rv_continuous):
         return prob
 
     def sample(self, size=1, random_state=None):
-        result = self.rvs(size=size, random_state=random_state)
-        result = result/1000 #convert from g to kg
-        result = result/7000 #convert mass to volume for Fe, rho=7000 [kg m-3]
-        result = (result*3/(4*pi))**(1/3) #convert volume to radius [m]
-        return result
+        return self.rvs(size=size, random_state=random_state)
 
 
 
@@ -425,7 +421,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
             rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
                     scale_height, m_bar)
             rho_o = rho_a*0.21 #just use 21% oxygen at this point
-        rho_o = rho_a*0.01 #TODO ORL delte this
+
         velocity, theta = velocityUpdate(theta, velocity, rho_a, rho_m, radius, 
                 dt, altitude)
         theta, phi, altitude = positionUpdate(altitude, velocity, theta, phi, dt)
@@ -662,12 +658,12 @@ def multithreadWrapper(args):
     return result
 
 
-def printSimulationFromFiles():
+def printSimulationFromFiles(directory="output"):
     """
     Wrapper to print simulation results from files.
     """
-    inputs = readModelDataFile("output/args_array.dat")
-    results = readModelDataFile("output/results.dat")
+    inputs = readModelDataFile(directory+"/args_array.dat")
+    results = readModelDataFile(directory+"/results.dat")
 
     simulationPrint(inputs, results)
 
@@ -701,7 +697,7 @@ def simulationPrint(inputs, results):
         print("\tmax temperature: %0.0f [K]"%(max_temp))
 
 
-def plotMultithreadResultsRadiusVsTheta(param=3):
+def plotMultithreadResultsRadiusVsTheta(param=3, directory="output"):
     """
     Plot the particle radius vs impact parameter for various velocities. The 
     displayed output is specified by param, which defaults to maximum temp.
@@ -717,10 +713,10 @@ def plotMultithreadResultsRadiusVsTheta(param=3):
     """
     #TODO implement the 5 parameters correctly!
 
-    radii = np.array(readModelDataFile("output/radii.dat"))
-    velocities = np.array(readModelDataFile("output/velocities.dat"))
-    thetas = np.array(readModelDataFile("output/thetas.dat"))
-    results = readModelDataFile("output/results.dat")
+    radii = np.array(readModelDataFile(directory+"/radii.dat"))
+    velocities = np.array(readModelDataFile(directory+"/velocities.dat"))
+    thetas = np.array(readModelDataFile(directory+"/thetas.dat"))
+    results = readModelDataFile(directory+"/results.dat")
 
 
     #the velocities to display (well, the closest available in the dataset)
@@ -864,18 +860,28 @@ def saveModelData(data, filename):
 
 
 
-def runMultithreadAcrossParams(debug_print=False):
+def runMultithreadAcrossParams(debug_print=False, output_dir="output"):
     """
     Run the simulation across the parameter ranges of initial radius, velocity,
     and impact angle (theta).
 
     Inputs:
         debug_print - set to true to print out model results.
+        output_dir  - the directory to which the output file will be saved.
     """
     if __name__ == '__main__':
-        rad_count = 30
-        vel_count = 30
-        the_count = 30
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        else:
+            print("The directory \""+output_dir+"\" already exists.")
+            resp = input("Overwrite files in \""+output_dir+"\"? [y/n]: ")
+            if resp != "y" and resp != "Y":
+                return
+
+        rad_count = 3
+        vel_count = 3
+        the_count = 3
         radii = np.linspace(50*1.0E-6, 450*1.0E-6, rad_count)
         velocities = np.linspace(11200, 36000, vel_count)
         thetas = np.linspace(0*pi/180,80*pi/180, the_count)
@@ -894,15 +900,99 @@ def runMultithreadAcrossParams(debug_print=False):
                 total=length))
             if debug_print:
                 simulationPrint(args_array, results)
-            saveModelData(radii, "output/radii.dat")
-            saveModelData(velocities, "output/velocities.dat")
-            saveModelData(thetas, "output/thetas.dat")
-            saveModelData(args_array, "output/args_array.dat")
-            saveModelData(results, "output/results.dat")
+
+            saveModelData(radii, output_dir+"/radii.dat")
+            saveModelData(velocities, output_dir+"/velocities.dat")
+            saveModelData(thetas, output_dir+"/thetas.dat")
+            saveModelData(args_array, output_dir+"/args_array.dat")
+            saveModelData(results, output_dir+"/results.dat")
+
+
+def generateRandomSampleData(num_samples=100, output_dir="rand_sim"):
+    """
+    Randomly sample from the input parameters (impact angle, velocity, radius)
+    a given number of times.
+
+    Inputs:
+        num_samples - the number of simulations to run
+        output_dir  - the directory to which the output file will be saved.
+    """
+
+    if __name__ == '__main__':
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        else:
+            print("The directory \""+output_dir+"\" already exists.")
+            resp = input("Overwrite files in \""+output_dir+"\"? [y/n]: ")
+            if resp != "y" and resp != "Y":
+                return
+
+        thetas = impactAngleDistribution().sample(size=num_samples)
+        velocities = initialVelocityDistribution().sample(size=num_samples)
+        velocities = velocities*1000 #convert from [km s-1] to [m s-1]
+        radii = initialMassDistribution().sample(size=num_samples)
+        radii = radii/1000 #convert from [g] to [kg]
+        radii = radii/7000 #convert from mass to volume [m3]
+        radii = (radii*3/(4*pi))**(1/3)
+
+        args_array = []
+        for i in range(num_samples):
+            args = (radii[i], velocities[i], thetas[i])
+            args_array.append(args)
+
+
+        with Pool(cpu_count()-1) as p:
+            results = list(tqdm(p.imap(multithreadWrapper, args_array), 
+                total=num_samples))
+
+            saveModelData(args_array, output_dir+"/args_array.dat")
+            saveModelData(results, output_dir+"/results.dat")
+
+
+def plotRandomDataHistogram(directory="rand_sim"):
+    """
+    Plot a histogram of the randomly generated data.
+
+    Inputs:
+        directory - the directory to find the data in
+    """
+
+    results = readModelDataFile(directory+"/results.dat")
+
+    final_radii = np.zeros(len(results))
+    core_frac = np.zeros_like(final_radii)
+
+    for i in range(len(results)):
+        final_radius, total_Fe, total_FeO, max_temp = results[i]
+        Fe_fraction = 0
+        if total_FeO > 0 or total_Fe > 0:
+            Fe_fraction = total_Fe/(total_Fe+total_FeO)
+        final_radii[i] = final_radius/1.0E-6 #convert from [m] to [microns]
+        core_frac[i] = Fe_fraction
+
+
+    ax1 = plt.subplot(121)
+    (num_rad, bins_rad, p_rad) = ax1.hist(final_radii, bins=100, normed=True)
+    ax1.set_title(r"Final Radius")
+    ax1.set_xlabel(r"Final Radius [$\mu$m]")
+    ax1.set_ylim(0, np.max(num_rad)*1.2)
+
+    ax2 = plt.subplot(122)
+    (num_frac, bins_frac, p_frac) = ax2.hist(core_frac, bins=100, normed=True)
+    ax2.set_title(r"Final Fe Mass Fraction")
+    ax2.set_xlabel("Fe Mass Fraction")
+    ax2.set_ylim(0, np.max(num_frac)*1.2)
+    #ax2.set_xlim(np.min(Fe_fraction), np.max(Fe_fraction))
+
+    plt.show()
 
 
 
-def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
+
+
+def plotParticleComparison(measured_rad, measured_core_frac, thetas_in,
+        directory="output"):
     """
     This function will plot the model output across all parameter ranges of 
     velocity and initial radius. Multiple plots will be generated for the impact
@@ -914,17 +1004,18 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
         measured_rad       - the measured radius of a micrometeorite [m]
         measured_core_frac - the measured Fe core fraction [0-1]
         thetas_in          - the theta values to use in the plot
+        directory          - the directory that holds the inputs files
 
     NOTE: the thetas plotted will be the closest thetas found in the data file.
     If the theta you want isn't exactly correct just rerun the data files to 
     ensure the exact value you want is included.
     """
 
-    radii = np.array(readModelDataFile("output_modern_O2/radii.dat"))
-    velocities = np.array(readModelDataFile("output_modern_O2/velocities.dat"))
-    thetas = np.array(readModelDataFile("output_modern_O2/thetas.dat"))
-    inputs = readModelDataFile("output_modern_O2/args_array.dat")
-    results = readModelDataFile("output_modern_O2/results.dat")
+    radii = np.array(readModelDataFile(directory+"/radii.dat"))
+    velocities = np.array(readModelDataFile(directory+"/velocities.dat"))
+    thetas = np.array(readModelDataFile(directory+"/thetas.dat"))
+    inputs = readModelDataFile(directory+"/args_array.dat")
+    results = readModelDataFile(directory+"/results.dat")
 
     theta_vals = []
     for theta in thetas_in:
@@ -988,7 +1079,7 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in):
     plt.show()
 
 
-def testDist(dist):
+def testDist(dist, use_log=False):
     """
     Test the sample distribution passed in.
 
@@ -1000,15 +1091,21 @@ def testDist(dist):
     sample_min = np.min(samples)
     sample_max = np.max(samples)
 
-    pdf_x = np.linspace(sample_min, sample_max, 50)
+    pdf_x = np.linspace(sample_min, sample_max, 500)
     pdf_y = np.zeros_like(pdf_x)
 
     for i in range(len(pdf_x)):
         pdf_y[i] = dist.pdf(pdf_x[i])
 
-    plt.hist(samples, bins=100, normed=True)
-    plt.plot(pdf_x, pdf_y, 'r')
+    if use_log:
+        plt.yscale("log")
     
+    (num, bins, patches) = plt.hist(samples, bins=100, normed=True)
+    plt.plot(pdf_x, pdf_y, 'r')
+
+    plt.ylim(0, np.max(num)*1.2)
+    plt.xlim(sample_min, sample_max)
+
     plt.show()
 
 
@@ -1016,7 +1113,10 @@ def testDist(dist):
 
 #simulateParticle(450*1.0E-6, 12000, 0*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
-#runMultithreadAcrossParams()
+#runMultithreadAcrossParams(output_dir="output")
+
+generateRandomSampleData(num_samples=10000)
+#plotRandomDataHistogram()
 
 #plot for Figure 1e (only one with Fe core)
 #plotParticleComparison(3.2*1.0E-6, 0.95, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
@@ -1029,4 +1129,5 @@ def testDist(dist):
 
 #testDist(impactAngleDistribution())
 #testDist(initialVelocityDistribution())
-testDist(initialRadiusDistribution())
+#testDist(initialMassDistribution(), use_log=True)
+
