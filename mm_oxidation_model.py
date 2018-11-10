@@ -106,6 +106,102 @@ class initialMassDistribution(stats.rv_continuous):
         return self.rvs(size=size, random_state=random_state)
 
 
+def genge2017ModernMicrometeoritesComp():
+    """
+    Return arrays with the atomic Fe and atomic O in Wustite micrometeorites.
+    The values here are taken from the wustite entries in Table 2 or Genge et 
+    al. (2017).
+
+    NOTE: The percents here do not add up to 100% in all cases. The model does
+    not consider things like Ni and Co and Cr so we'll only compare the ratio
+    of Fe to O.
+
+    Returns:
+        Fe_percents - the atomic Fe percent
+        O_percents  - the atomic O percent
+    """
+
+    Fe_percents = [73.68,
+                   74.83,
+                   66.56,
+                   74.56,
+                   74.56,
+                   69.60,
+                   70.94,
+                   75.20,
+                   75.20,
+                   75.08,
+                   75.44,
+                   76.19,
+                   74.74,
+                   65.74,
+                   63.52,
+                   70.11,
+                   74.52,
+                   68.86,
+                   63.53,
+                   76.43,
+                   69.19,
+                   73.69,
+                   74.39,
+                   65.89]
+
+    O_percents = [22.80,
+                  22.21,
+                  21.39,
+                  21.68,
+                  21.68,
+                  21.56,
+                  21.57,
+                  21.65,
+                  22.05,
+                  21.68,
+                  21.89,
+                  22.04,
+                  21.73,
+                  21.18,
+                  21.34,
+                  22.26,
+                  22.10,
+                  21.26,
+                  21.84,
+                  22.01,
+                  21.62,
+                  21.93,
+                  21.70,
+                  22.10]
+
+#    for i in range(len(O_percents)):
+#        total = O_percents[i] + Fe_percents[i]
+#        O_percents[i] = O_percents[i]/total
+#        Fe_percents[i] = Fe_percents[i]/total
+
+    O_percents = np.array(O_percents)
+    Fe_percents = np.array(Fe_percents)
+
+    O_mean = np.mean(O_percents)
+    O_std = np.std(O_percents)
+
+    Fe_mean = np.mean(Fe_percents)
+    Fe_std = np.std(Fe_percents)
+
+    print("O %% mean: %2.2f, std: %2.2f"%(O_mean, O_std))
+    print("Fe %% mean: %2.2f, std: %2.2f"%(Fe_mean, Fe_std))
+
+    ax1 = plt.subplot(121)
+    (num, bins, p) = ax1.hist(Fe_percents, bins=20, normed=True)
+    ax1.set_title("Fe Atomic Percent")
+    ax1.set_xlabel("Fe Atomic Percent")
+    ax1.set_ylim(0, np.max(num)*1.2)
+
+    ax2 = plt.subplot(122)
+    (num, bins, p) = ax2.hist(O_percents, bins=20, normed=True)
+    ax2.set_title("O Atomic Percent")
+    ax2.set_xlabel("O Atomic Percent")
+    ax2.set_ylim(0, np.max(num)*1.2)
+
+    plt.show()
+
 
 def US1976StandardAtmosphere(altitude):
     """
@@ -950,7 +1046,7 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim"):
             saveModelData(results, output_dir+"/results.dat")
 
 
-def plotRandomDataHistogram(directory="rand_sim"):
+def plotRandomDataHistogram(directory="rand_sim", plot_num=0):
     """
     Plot a histogram of the randomly generated data.
 
@@ -960,30 +1056,85 @@ def plotRandomDataHistogram(directory="rand_sim"):
 
     results = readModelDataFile(directory+"/results.dat")
 
-    final_radii = np.zeros(len(results))
-    core_frac = np.zeros_like(final_radii)
+    final_radii = []
+    core_frac = []
+    Fe_atomic_percent = [] 
+    O_atomic_percent = []
+
+    m_FeO = 0.0718 #molecular weight of FeO [kg mol-1]
+    m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
+    m_O = 0.016 #molecular weight of O [kg mol-1]
+
 
     for i in range(len(results)):
         final_radius, total_Fe, total_FeO, max_temp = results[i]
-        Fe_fraction = 0
-        if total_FeO > 0 or total_Fe > 0:
-            Fe_fraction = total_Fe/(total_Fe+total_FeO)
-        final_radii[i] = final_radius/1.0E-6 #convert from [m] to [microns]
-        core_frac[i] = Fe_fraction
+
+        Fe_mols = total_Fe/m_Fe + total_FeO/m_FeO #total Fe in mols
+        O_mols = total_FeO/m_FeO #total O in mols
+        O_perc = O_mols/(Fe_mols + O_mols)
+
+        if O_perc != 0.5 and O_perc != 0:
+            #clip pure wustite and pure Fe
+
+            Fe_fraction = 0
+            if total_FeO > 0 or total_Fe > 0:
+                Fe_fraction = total_Fe/(total_Fe+total_FeO)
+            final_radii.append(final_radius/1.0E-6) #convert from [m] to [microns]
+            core_frac.append(Fe_fraction)
+
+            Fe_atomic_percent.append(Fe_mols/(Fe_mols + O_mols)*100)
+            O_atomic_percent.append(O_perc*100)
+
+    Fe_atomic_percent = np.array(Fe_atomic_percent)
+    O_atomic_percent = np.array(O_atomic_percent)
+    O_mean = np.mean(O_atomic_percent)
+    O_std = np.std(O_atomic_percent)
+    Fe_mean = np.mean(Fe_atomic_percent)
+    Fe_std = np.std(Fe_atomic_percent)
+    print("O %% mean: %2.2f, std: %2.2f"%(O_mean, O_std))
+    print("Fe %% mean: %2.2f, std: %2.2f"%(Fe_mean, Fe_std))
 
 
-    ax1 = plt.subplot(121)
-    (num_rad, bins_rad, p_rad) = ax1.hist(final_radii, bins=100, normed=True)
-    ax1.set_title(r"Final Radius")
-    ax1.set_xlabel(r"Final Radius [$\mu$m]")
-    ax1.set_ylim(0, np.max(num_rad)*1.2)
+    if plot_num == 0:
+        final_radii = np.array(final_radii)
+        rad_mean = np.mean(final_radii)
+        rad_std = np.std(final_radii)
+        genge_rad = 52.5
 
-    ax2 = plt.subplot(122)
-    (num_frac, bins_frac, p_frac) = ax2.hist(core_frac, bins=100, normed=True)
-    ax2.set_title(r"Final Fe Mass Fraction")
-    ax2.set_xlabel("Fe Mass Fraction")
-    ax2.set_ylim(0, np.max(num_frac)*1.2)
-    #ax2.set_xlim(np.min(Fe_fraction), np.max(Fe_fraction))
+        ax1 = plt.subplot(111)
+        log_bins = np.logspace(0,3,100)
+        (num, bins, p) = ax1.hist(final_radii, bins=log_bins, normed=True)
+        ax1.errorbar([rad_mean], [np.max(num)*1.1], xerr=[rad_std], fmt="bo")
+        ax1.errorbar([genge_rad], [np.max(num)*1.07], xerr=[0], fmt="ro")
+        ax1.set_title(r"Final Radius")
+        ax1.set_xlabel(r"Final Radius [$\mu$m]")
+        ax1.set_ylim(0, np.max(num)*1.2)
+        ax1.set_xscale("log")
+
+#        ax2 = plt.subplot(122)
+#        (num_frac, bins_frac, p_frac) = ax2.hist(core_frac, bins=100, normed=True)
+#        ax2.set_title(r"Final Fe Mass Fraction")
+#        ax2.set_xlabel("Fe Mass Fraction")
+#        ax2.set_ylim(0, np.max(num_frac)*1.2)
+#        #ax2.set_xlim(np.min(Fe_fraction), np.max(Fe_fraction))
+
+
+    if plot_num == 1:
+        ax3 = plt.subplot(111)
+        Fe_mean_genge = 71.77 #see genge2017ModernMicrometeoritesComp()
+        Fe_std_genge = 4.09 #see genge2017ModernMicrometeoritesComp()
+        (num_Fe, bins_Fe, p_Fe) = ax3.hist(Fe_atomic_percent, bins=100, normed=True)
+        ax3.errorbar([Fe_mean], [np.max(num_Fe)*1.1], xerr=[Fe_std], fmt="bo")
+        ax3.errorbar([Fe_mean_genge], np.max(num_Fe)*1.07, xerr=[Fe_std_genge], fmt="ro")
+        ax3.set_title("Atomic Fe %")
+        ax3.set_xlabel("Atomic Fe %")
+        ax3.set_ylim(0, np.max(num_Fe)*1.2)
+
+#        ax4 = plt.subplot(122)
+#        (num_O, bins_O, p_O) = ax4.hist(O_atomic_percent, bins=100, normed=True)
+#        ax4.set_title("Atomic O %")
+#        ax4.set_xlabel("Atomic O %")
+#        ax4.set_ylim(0, np.max(num_O)*1.2)
 
     plt.show()
 
@@ -1027,7 +1178,7 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in,
     micron = 1.0E-6
     sc = None
 
-    cm = plt.cm.get_cmap("winter")
+    cm = plt.cm.get_cmap("rainbow")
 
     for i in range(the_len):
         ax = plt.subplot(the_len,1,i+1)
@@ -1036,7 +1187,7 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in,
         ax.set_ylabel(r"Velocity [km s$^{-1}$]")
         title = r"Impact Angle: %0.0f$^{\degree}$"%(theta_vals[i]*180/pi)
         ax.text(0.025, 0.85, title, transform=ax.transAxes, 
-                bbox=dict(facecolor="red", alpha=0.5))
+                bbox=dict(facecolor="white", alpha=1.0))
 
         #remove the tick labels from all but the last one
         if i != the_len-1:
@@ -1115,14 +1266,18 @@ def testDist(dist, use_log=False):
 #compareStandardAndHydrostaticAtmospheres()
 #runMultithreadAcrossParams(output_dir="output")
 
-generateRandomSampleData(num_samples=10000)
+#generateRandomSampleData(num_samples=10000)
 #plotRandomDataHistogram()
 
+#genge2017ModernMicrometeoritesComp()
+
 #plot for Figure 1e (only one with Fe core)
-#plotParticleComparison(3.2*1.0E-6, 0.95, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
+plotParticleComparison(3.2*1.0E-6, 0.95, [0,30*pi/180, 45*pi/180, 60*pi/180],
+        directory="output_1_percent_O2") 
 
 #plot for Figure 1f, pure wustite
-#plotParticleComparison(37.5*1.0E-6, 0, [0,30*pi/180, 45*pi/180, 60*pi/180]) 
+#plotParticleComparison(37.5*1.0E-6, 0, [0,30*pi/180, 45*pi/180, 60*pi/180], 
+#        directory="output_1_percent_O2") 
 
 #plotMultithreadResultsRadiusVsTheta(param=0)
 #printSimulationFromFiles()
