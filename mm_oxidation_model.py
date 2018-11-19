@@ -11,6 +11,7 @@
 ###############################################################################
 
 from math import sin, cos, sqrt, atan, asin, pi, exp
+from scipy.optimize import curve_fit
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 from scipy import stats, integrate
@@ -201,6 +202,37 @@ def genge2017ModernMicrometeoritesComp():
     ax2.set_ylim(0, np.max(num)*1.2)
 
     plt.show()
+
+
+def USStandardAtmosFit(alt, a=1.273, b=2.934, c=0.901, d=0.3766):
+    """
+    The best fit to the Us Standard atmosphere. The fitting was done with
+    curve_fit and generated values set as the defaults.
+
+    Inputs:
+        alt     - the altitude above Earth's center [m]
+        a,b,c,d - constants fit by curve_fit
+    """
+    scale_height = 8400 #atmospheric scale height [m]
+    isothermal_temp = 288 #temperature of the atmosphere [K]
+    p_sur = 1.0E5 #surface pressure [Pa]
+    m_bar = 29*proton_mass #mean molecular weight of the atmosphere [kg m-3]
+
+    #make alt an array if scalar
+    if not hasattr(alt, "__len__"):
+        alt = [alt]
+
+    rho_a = np.zeros_like(alt)
+    for i in range(len(rho_a)):
+        height = alt[i] - earth_rad
+        
+        pressure =  p_sur*exp(-height/scale_height*a)*b
+        
+        if height/1000 > 130: #over 130 km
+            pressure = pressure + c**(height**d)
+
+        rho_a[i] = m_bar*pressure/(kb*isothermal_temp)
+    return rho_a
 
 
 def US1976StandardAtmosphere(altitude):
@@ -473,10 +505,10 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
 
     #this specific heat was taken from figure 1 of Stolen et al (2015),
     #figure 2 of that paper shows c_sp as 696 though?
-    #c_sp = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
+    c_sp = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
     #figure 2 in the same paper shows a c_sp of 696 [J K-1 kg-1], so try both?
     #c_sp = 4.377E-5
-    c_sp = 949.26 #specific heat of FeO from TODO
+    #c_sp = 949.26 #specific heat of FeO from TODO
     c_sp_Fe = 440 #specific heat of Fe
     c_sp_Fe3O4 = 619.4 #specific heat of Fe3O4
 
@@ -511,12 +543,15 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
 
        
     for i in range(0, max_iter):
-        if altitude - earth_rad >= 70000:
-            rho_a, rho_o = US1976StandardAtmosphere(altitude)
-        else:
-            rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
-                    scale_height, m_bar)
-            rho_o = rho_a*0.21 #just use 21% oxygen at this point
+#        if altitude - earth_rad >= 70000:
+#            rho_a, rho_o = US1976StandardAtmosphere(altitude)
+#        else:
+#            rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
+#                    scale_height, m_bar)
+#            rho_o = rho_a*0.21 #just use 21% oxygen at this point
+
+        rho_a = USStandardAtmosFit(altitude)
+        rho_o = rho_a*0.21
 
         velocity, theta = velocityUpdate(theta, velocity, rho_a, rho_m, radius, 
                 dt, altitude)
@@ -598,11 +633,11 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
             rho_m = 0
 
         if temp > max_temp:
-            max_temp = temp
+            max_temp = float(temp) #temp was being passed by reference??
 
         if debug_print:
             try:
-                print("%3d: Fe: %3.0f%%, temp: %5.0f, radius: %0.1f [microns]"%(i,
+                print("%3d: Fe: %3.0f%%, temp: %5.0f, radius: %0.1f [microns]"%(i, 
                     total_Fe/(total_Fe+total_FeO)*100,temp,radius/(1.0E-6)))
 
                 if total_FeO < 0:
@@ -629,6 +664,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
 
     if end_index == -1:
         print("Warning: simulation did not converge before maximum iterations reached")
+        end_index += max_iter
 
     if debug_print:
         print("\n\nFinal radius: %0.1f [microns]\nMax temperature: %0.0f[K]\nFe mass fraction: %0.2f"%(radius*1.0E6, max_temp, total_Fe/(total_Fe+total_FeO)))
@@ -649,15 +685,12 @@ def compareStandardAndHydrostaticAtmospheres():
     p_sur = 1.0E5 #surface pressure [Pa]
 
     altitudes = np.linspace(earth_rad+7.0E4,earth_rad+1.9E5, 20)
+    altitudes2 = np.linspace(earth_rad+5.0E4,earth_rad+1.9E5, 100)
 
     stnd_rho = np.zeros(len(altitudes))
     stnd_ox = np.zeros_like(stnd_rho)
 
-    hydro_rho0 = np.zeros_like(stnd_rho)
-    hydro_rho1 = np.zeros_like(stnd_rho)
-    hydro_rho2 = np.zeros_like(stnd_rho)
-
-    hydro_ox = np.zeros_like(stnd_rho)
+    hydro_rho0 = np.zeros_like(altitudes2)
 
     for i in range(0,len(altitudes)):
         alt = altitudes[i]
@@ -667,36 +700,39 @@ def compareStandardAndHydrostaticAtmospheres():
         stnd_rho[i] = rho_a
         stnd_ox[i] = rho_o
 
+    for i in range(len(altitudes2)):
+        alt = altitudes2[i]
         rho_a0 = atmosphericDensity(p_sur, alt, isothermal_temp, 
                 scale_height, m_bar)
-        rho_o = rho_a0*0.21 #just use 21% oxygen at this point
-
-        rho_a1 = atmosphericDensity(p_sur, alt, isothermal_temp, 
-                scale_height, m_bar, beta=0.95)
-
-        rho_a2 = atmosphericDensity(p_sur, alt, isothermal_temp, 
-                scale_height, m_bar, beta=1.07)
-
-
 
         hydro_rho0[i] = rho_a0
-        hydro_ox[i] = rho_o
 
-        hydro_rho1[i] = rho_a1
-        hydro_rho2[i] = rho_a2
+
+
+    coeffs = curve_fit(USStandardAtmosFit, altitudes, stnd_rho, maxfev=10000)
+    print("best param fit is:")
+    print("\tA = %2.3e"%(coeffs[0][0]))
+    print("\tB = %2.3e"%(coeffs[0][1]))
+    print("\tC = %2.3e"%(coeffs[0][2]))
+    print("\tD = %2.3e"%(coeffs[0][3]))
+
+    fit_line = USStandardAtmosFit(altitudes2)
+
 
     altitudes = (altitudes-earth_rad)/1000 #convert to altitude in km
+    altitudes2 = (altitudes2-earth_rad)/1000 #convert to altitude in km
+
     plt.plot(stnd_rho, altitudes,'ro', label="US Standard")
     plt.plot(stnd_ox, altitudes,'bo', label="Stnd ox")
-    plt.plot(hydro_rho0, altitudes, 'r', label="Hydrostatic")
-    #plt.plot(hydro_ox, altitudes,'b', label="Hydro ox")
-    plt.plot(hydro_rho1, altitudes, 'b', label="Beta=0.95")
-    plt.plot(hydro_rho2, altitudes, 'k', label="Beta=1.07")
+    plt.plot(hydro_rho0, altitudes2, 'r', label="Hydrostatic")
+
+    plt.plot(fit_line, altitudes2, ":g", label="Best Fit")
+    plt.plot(fit_line*0.21, altitudes2, ":b", label="Best Fit O2")
 
     plt.gca().set_xscale("log")
     plt.xlabel(r"Atmospheric Density [kg m$^{-3}$]")
     plt.ylabel("Altitude [km]")
-    plt.ylim([70,190])
+    plt.ylim([np.min(altitudes2),190])
     plt.legend()
     plt.show()
 
@@ -1262,7 +1298,7 @@ def testDist(dist, use_log=False):
 
 
 
-#simulateParticle(450*1.0E-6, 12000, 0*pi/180, debug_print=True)
+simulateParticle(150*1.0E-6, 12000, 0*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
 #runMultithreadAcrossParams(output_dir="output")
 
@@ -1272,8 +1308,8 @@ def testDist(dist, use_log=False):
 #genge2017ModernMicrometeoritesComp()
 
 #plot for Figure 1e (only one with Fe core)
-plotParticleComparison(3.2*1.0E-6, 0.95, [0,30*pi/180, 45*pi/180, 60*pi/180],
-        directory="output_1_percent_O2") 
+#plotParticleComparison(3.2*1.0E-6, 0.95, [0,30*pi/180, 45*pi/180, 60*pi/180],
+#        directory="output_1_percent_O2") 
 
 #plot for Figure 1f, pure wustite
 #plotParticleComparison(37.5*1.0E-6, 0, [0,30*pi/180, 45*pi/180, 60*pi/180], 
