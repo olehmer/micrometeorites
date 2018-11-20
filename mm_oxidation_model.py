@@ -480,6 +480,8 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         total_Fe  - total mass of Fe remaining [kg]
         total_FeO - total mass of FeO remaining [kg]
         max_temp  - maximum temperature of micrometeorite [K]
+        stoich_O  - the resulting stoichiometry of the FeO (so number of O moles
+                    to Fe moles, it will be >=1)
     """
 
     #atmospheric constants, taken from David's book
@@ -495,6 +497,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
 
     total_Fe = 4/3*pi*radius**3*rho_m #mass of Fe
     total_FeO = 0 #mass of FeO
+    stoich_O = 1.0 # the number of O atoms per Fe atoms in Feo 
     Fe_metling_temp = 1809 #temperature at which Fe melts [K]
     FeO_melting_temp = 1720 #melting temp of Fe) [K]
 
@@ -519,9 +522,10 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
     #L_v = 6.050E6 #latent heat of vaporization for FeO [J kg-1] TODO: is it?
     L_v = 6.265E6 #latent heat of vaporization for Fe [j kg-1]
 
-    m_FeO = 0.0718 #molecular weight of FeO [kg mol-1]
     m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
     m_O = 0.016 #molecular weight of O [kg mol-1]
+    m_FeO = m_Fe + m_O #molecular weight of FeO [kg mol-1]
+    m_Fe3O4 = m_Fe*3 + m_O*4 #molecular weight of Fe3O4 [kg mol-1]
 
     max_iter = 10000000
     dt = 0.001 #time step [s]
@@ -539,27 +543,28 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
     radii = np.zeros(max_iter)
     altitudes = np.zeros(max_iter)
     times = np.zeros(max_iter)
+    stoichs = np.zeros(max_iter)
 
 
        
     for i in range(0, max_iter):
-#        if altitude - earth_rad >= 70000:
-#            rho_a, rho_o = US1976StandardAtmosphere(altitude)
-#        else:
-#            rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
-#                    scale_height, m_bar)
-#            rho_o = rho_a*0.21 #just use 21% oxygen at this point
+        if altitude - earth_rad >= 70000:
+            rho_a, rho_o = US1976StandardAtmosphere(altitude)
+        else:
+            rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
+                    scale_height, m_bar)
+            rho_o = rho_a*0.21 #just use 21% oxygen at this point
 
-        rho_a = USStandardAtmosFit(altitude)
-        rho_o = rho_a*0.21
+#        rho_a = USStandardAtmosFit(altitude)
+#        rho_o = rho_a*0.21
 
         velocity, theta = velocityUpdate(theta, velocity, rho_a, rho_m, radius, 
                 dt, altitude)
         theta, phi, altitude = positionUpdate(altitude, velocity, theta, phi, dt)
 
         #Genge equation 13, which is in [dynes cm-2], convert to[Pa]
-        #p_v = 10**(11.3-2.0126E4/temp)/10
-        p_v_FeO = exp(25.93-50390/temp) #ORL derived equation from Wang
+        p_v_FeO = 10**(11.3-2.0126E4/temp)/10
+        #p_v_FeO = exp(25.93-50390/temp) #ORL derived equation from Wang
         p_v_Fe = exp(26.5-45210/temp) #ORL derived equation from Wang
 
 
@@ -572,6 +577,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         #the mass evaporation of Fe
         dM_evap_dt_Fe = 4*pi*radius**2*p_v_Fe*sqrt(m_Fe/(2*pi*gas_const*temp))
 
+
         #the total mass lost
         dM_evap_dt = dM_evap_dt_FeO #this will be updated below
 
@@ -579,6 +585,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         #handle the oxidation of the Fe to FeO here
         dM_Fe_dt = 0
         dM_FeO_dt = 0 
+        added_O_dt = 0 # the oxygen added once pure FeO
 
         #make sure there's some Fe before trying to oxidize it
         if total_Fe > 0 and temp > Fe_metling_temp:
@@ -593,6 +600,17 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
                 dM_Fe_dt = -total_Fe/dt
                 dM_FeO_dt = dM_Fe_dt*m_FeO/m_Fe
 
+        elif total_Fe <= 0 and temp > FeO_melting_temp:
+            #just FeO left, oxidize the liquid oxide further
+            added_O_dt = rho_o*pi*radius**2*velocity
+            dM_FeO_dt = added_O_dt #add the mass of the O
+
+            #update the stoichiometry of the FeO
+            Fe_moles = total_FeO/m_FeO
+            new_O_moles = Fe_moles*stoich_O + added_O_dt*dt/m_O
+            stoich_O = new_O_moles/Fe_moles
+
+
         total_Fe += dM_Fe_dt*dt #dM_Fe_dt is already negative
         total_FeO += dM_FeO_dt*dt
 
@@ -601,7 +619,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         #then if all FeO is lost during dt evaporate Fe to compensate
         FeO_loss = dM_evap_dt_FeO*dt
         Fe_loss = 0
-        if FeO_loss > total_FeO:
+        if FeO_loss > total_FeO and total_Fe > 0:
             frac = (1-total_FeO/FeO_loss)
             new_dt = frac*dt
             FeO_loss = total_FeO
@@ -616,7 +634,10 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
 
               
         #genge equation 4
-        dq_ox_dt = 3716*dM_FeO_dt
+        if added_O_dt == 0:
+            dq_ox_dt = 3716*dM_FeO_dt
+        else:
+            dq_ox_dt = 3716*(added_O_dt*m_FeO/m_O)
 
         #equation 6 of Genge (2016). This has the oxidation energy considered
         #which is described by equation 14
@@ -635,18 +656,18 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         if temp > max_temp:
             max_temp = float(temp) #temp was being passed by reference??
 
-        if debug_print:
-            try:
-                print("%3d: Fe: %3.0f%%, temp: %5.0f, radius: %0.1f [microns]"%(i, 
-                    total_Fe/(total_Fe+total_FeO)*100,temp,radius/(1.0E-6)))
-
-                if total_FeO < 0:
-                    print("     FeO under 0! %2.2e"%(total_FeO))
-            except:
-                print(total_FeO)
-                print(total_Fe)
-                print(radius)
-                print(temp)
+#        if debug_print:
+#            try:
+#                print("%3d: Fe: %3.0f%%, temp: %5.0f, radius: %0.1f [microns]"%(i, 
+#                    total_Fe/(total_Fe+total_FeO)*100,temp,radius/(1.0E-6)))
+#
+#                if total_FeO < 0:
+#                    print("     FeO under 0! %2.2e"%(total_FeO))
+#            except:
+#                print(total_FeO)
+#                print(total_Fe)
+#                print(radius)
+#                print(temp)
 
 
         temps[i]=temp
@@ -654,12 +675,13 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         radii[i] = radius
         altitudes[i] = altitude
         times[i] = dt*i
+        stoichs[i] = stoich_O
 
         #check if the particle has started cooling significantly
         if temp < max_temp/2 or radius == 0:
             end_index = i
             if debug_print:
-                print("Early end")
+                print("Early end (%d steps)"%i)
             break
 
     if end_index == -1:
@@ -667,12 +689,17 @@ def simulateParticle(radius, velocity, theta, debug_print=False):
         end_index += max_iter
 
     if debug_print:
-        print("\n\nFinal radius: %0.1f [microns]\nMax temperature: %0.0f[K]\nFe mass fraction: %0.2f"%(radius*1.0E6, max_temp, total_Fe/(total_Fe+total_FeO)))
+        print("\n\n")
+        print("Final radius: %0.1f [microns]"%(radius*1.0E6))
+        print("Maximum temp: %0.0f [K]"%(max_temp))
+        print("Fe mass fraction %0.2f"%(total_Fe/(total_Fe+total_FeO)))
+        print("Oxygen stoichiometry: %0.2f"%(stoich_O))
 
         plotParticleParameters(temps[0:end_index+1], velocities[0:end_index+1], 
-                radii[0:end_index+1], altitudes[0:end_index+1], times[0:end_index+1])
+                radii[0:end_index+1], altitudes[0:end_index+1], 
+                times[0:end_index+1], stoichs[0:end_index+1])
 
-    return radius, total_Fe, total_FeO, max_temp
+    return radius, total_Fe, total_FeO, max_temp, stoich_O
 
 
 
@@ -737,7 +764,7 @@ def compareStandardAndHydrostaticAtmospheres():
     plt.show()
 
 
-def plotParticleParameters(temps, velocities, rads, altitudes, times):
+def plotParticleParameters(temps, velocities, rads, altitudes, times, stoichs):
     """
     Function to plot the various parameters of the simulation.
 
@@ -747,9 +774,10 @@ def plotParticleParameters(temps, velocities, rads, altitudes, times):
         rads       - micrometeorite radii [m]
         altitudes  - micrometeorite altitude above Earth's center [m]
         times      - times [s]
+        stoichs    - O stoichiometry
     """
 
-    fig, (ax1,ax2,ax3,ax4) = plt.subplots(4,1, sharex=True)
+    fig, (ax1,ax2,ax3,ax4,ax5) = plt.subplots(5,1, sharex=True)
 
     ax1.plot(times,temps)
     ax1.set_ylabel("Temp. [K]")
@@ -760,9 +788,13 @@ def plotParticleParameters(temps, velocities, rads, altitudes, times):
     ax3.plot(times,rads*(1.0E6))
     ax3.set_ylabel(r"Radius [$\mu$m]")
 
-    ax4.plot(times,(altitudes-earth_rad)/1000)
-    ax4.set_ylabel("Alt. [km]")
-    ax4.set_xlabel("Time [s]")
+    ax4.plot(times, stoichs)
+    ax4.set_ylabel("O Stoich")
+
+    ax5.plot(times,(altitudes-earth_rad)/1000)
+    ax5.set_ylabel("Alt. [km]")
+    ax5.set_xlabel("Time [s]")
+
 
     plt.show()
 
@@ -782,10 +814,10 @@ def multithreadWrapper(args):
     """
 
     radius, velocity, theta = args
-    final_radius, total_Fe, total_FeO, max_temp = simulateParticle(radius,
-            velocity, theta)
+    final_radius, total_Fe, total_FeO, max_temp, stoich_O = simulateParticle(
+            radius, velocity, theta)
 
-    result = (final_radius, total_Fe, total_FeO, max_temp)
+    result = (final_radius, total_Fe, total_FeO, max_temp, stoich_O)
 
     return result
 
@@ -1011,12 +1043,12 @@ def runMultithreadAcrossParams(debug_print=False, output_dir="output"):
             if resp != "y" and resp != "Y":
                 return
 
-        rad_count = 3
-        vel_count = 3
+        rad_count = 20
+        vel_count = 20
         the_count = 3
         radii = np.linspace(50*1.0E-6, 450*1.0E-6, rad_count)
         velocities = np.linspace(11200, 36000, vel_count)
-        thetas = np.linspace(0*pi/180,80*pi/180, the_count)
+        thetas = np.array([0,45,70]) #np.linspace(0*pi/180,80*pi/180, the_count)
 
         length = len(radii)*len(velocities)*len(thetas)
 
@@ -1082,7 +1114,7 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim"):
             saveModelData(results, output_dir+"/results.dat")
 
 
-def plotRandomDataHistogram(directory="rand_sim", plot_num=0):
+def plotRandomDataHistogram(directory="rand_sim", plot_num=1):
     """
     Plot a histogram of the randomly generated data.
 
@@ -1096,6 +1128,7 @@ def plotRandomDataHistogram(directory="rand_sim", plot_num=0):
     core_frac = []
     Fe_atomic_percent = [] 
     O_atomic_percent = []
+    stoichs = []
 
     m_FeO = 0.0718 #molecular weight of FeO [kg mol-1]
     m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
@@ -1103,14 +1136,16 @@ def plotRandomDataHistogram(directory="rand_sim", plot_num=0):
 
 
     for i in range(len(results)):
-        final_radius, total_Fe, total_FeO, max_temp = results[i]
+        final_radius, total_Fe, total_FeO, max_temp, stoich_O = results[i]
 
+        stoichs.append(stoich_O)
         Fe_mols = total_Fe/m_Fe + total_FeO/m_FeO #total Fe in mols
-        O_mols = total_FeO/m_FeO #total O in mols
+        O_mols = total_FeO/m_FeO*stoich_O #total O in mols
         O_perc = O_mols/(Fe_mols + O_mols)
 
-        if O_perc != 0.5 and O_perc != 0:
-            #clip pure wustite and pure Fe
+        if final_radius/1.0E-6 > 5 or True:  
+            #clip micrometeorites with very small radii, as they aren't 
+            #in the data collection
 
             Fe_fraction = 0
             if total_FeO > 0 or total_Fe > 0:
@@ -1131,21 +1166,21 @@ def plotRandomDataHistogram(directory="rand_sim", plot_num=0):
     print("Fe %% mean: %2.2f, std: %2.2f"%(Fe_mean, Fe_std))
 
 
-    if plot_num == 0:
-        final_radii = np.array(final_radii)
-        rad_mean = np.mean(final_radii)
-        rad_std = np.std(final_radii)
-        genge_rad = 52.5
+#    if plot_num == 0:
+    final_radii = np.array(final_radii)
+    rad_mean = np.mean(final_radii)
+    rad_std = np.std(final_radii)
+    genge_rad = 52.5
 
-        ax1 = plt.subplot(111)
-        log_bins = np.logspace(0,3,100)
-        (num, bins, p) = ax1.hist(final_radii, bins=log_bins, normed=True)
-        ax1.errorbar([rad_mean], [np.max(num)*1.1], xerr=[rad_std], fmt="bo")
-        ax1.errorbar([genge_rad], [np.max(num)*1.07], xerr=[0], fmt="ro")
-        ax1.set_title(r"Final Radius")
-        ax1.set_xlabel(r"Final Radius [$\mu$m]")
-        ax1.set_ylim(0, np.max(num)*1.2)
-        ax1.set_xscale("log")
+    ax1 = plt.subplot(121)
+    log_bins = np.logspace(0,3,100)
+    (num, bins, p) = ax1.hist(final_radii, bins=log_bins, normed=True)
+    ax1.errorbar([rad_mean], [np.max(num)*1.1], xerr=[rad_std], fmt="bo")
+    ax1.errorbar([genge_rad], [np.max(num)*1.07], xerr=[0], fmt="ro")
+    ax1.set_title(r"Final Radius")
+    ax1.set_xlabel(r"Final Radius [$\mu$m]")
+    ax1.set_ylim(0, np.max(num)*1.2)
+    ax1.set_xscale("log")
 
 #        ax2 = plt.subplot(122)
 #        (num_frac, bins_frac, p_frac) = ax2.hist(core_frac, bins=100, normed=True)
@@ -1155,22 +1190,27 @@ def plotRandomDataHistogram(directory="rand_sim", plot_num=0):
 #        #ax2.set_xlim(np.min(Fe_fraction), np.max(Fe_fraction))
 
 
-    if plot_num == 1:
-        ax3 = plt.subplot(111)
-        Fe_mean_genge = 71.77 #see genge2017ModernMicrometeoritesComp()
-        Fe_std_genge = 4.09 #see genge2017ModernMicrometeoritesComp()
-        (num_Fe, bins_Fe, p_Fe) = ax3.hist(Fe_atomic_percent, bins=100, normed=True)
-        ax3.errorbar([Fe_mean], [np.max(num_Fe)*1.1], xerr=[Fe_std], fmt="bo")
-        ax3.errorbar([Fe_mean_genge], np.max(num_Fe)*1.07, xerr=[Fe_std_genge], fmt="ro")
-        ax3.set_title("Atomic Fe %")
-        ax3.set_xlabel("Atomic Fe %")
-        ax3.set_ylim(0, np.max(num_Fe)*1.2)
+#    if plot_num == 1:
+#        ax3 = plt.subplot(111)
+#        Fe_mean_genge = 71.77 #see genge2017ModernMicrometeoritesComp()
+#        Fe_std_genge = 4.09 #see genge2017ModernMicrometeoritesComp()
+#        (num_Fe, bins_Fe, p_Fe) = ax3.hist(Fe_atomic_percent, bins=100, normed=True)
+#        ax3.errorbar([Fe_mean], [np.max(num_Fe)*1.1], xerr=[Fe_std], fmt="bo")
+#        ax3.errorbar([Fe_mean_genge], np.max(num_Fe)*1.07, xerr=[Fe_std_genge], fmt="ro")
+#        ax3.set_title("Atomic Fe %")
+#        ax3.set_xlabel("Atomic Fe %")
+#        ax3.set_ylim(0, np.max(num_Fe)*1.2)
 
-#        ax4 = plt.subplot(122)
-#        (num_O, bins_O, p_O) = ax4.hist(O_atomic_percent, bins=100, normed=True)
-#        ax4.set_title("Atomic O %")
-#        ax4.set_xlabel("Atomic O %")
-#        ax4.set_ylim(0, np.max(num_O)*1.2)
+    ax4 = plt.subplot(122)
+    (num_O, bins_O, p_O) = ax4.hist(O_atomic_percent, bins=100, normed=True)
+    O_mean_genge = 21.80
+    O_std_genge = 0.36
+    ax4.errorbar([O_mean], [np.max(num_O)*1.1], xerr=[O_std], fmt="bo")
+    ax4.errorbar([O_mean_genge], np.max(num_O)*1.07, xerr=[O_std_genge], fmt="ro")
+    ax4.set_title("Atomic O %")
+    ax4.set_xlabel("Atomic O %")
+    ax4.set_ylim(0, np.max(num_O)*1.2)
+
 
     plt.show()
 
@@ -1232,7 +1272,7 @@ def plotParticleComparison(measured_rad, measured_core_frac, thetas_in,
 
         for j in range(len(inputs)):
             if inputs[j][2] == theta_vals[i]:
-                final_radius, total_Fe, total_FeO, max_temp = results[j]
+                final_radius, total_Fe, total_FeO, max_temp, stoich_O = results[j]
                 core_frac = total_Fe/(total_Fe+total_FeO)
 
                 z = 0
@@ -1298,12 +1338,12 @@ def testDist(dist, use_log=False):
 
 
 
-simulateParticle(150*1.0E-6, 12000, 0*pi/180, debug_print=True)
+#simulateParticle(75*1.0E-6, 12000, 0*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
-#runMultithreadAcrossParams(output_dir="output")
+#runMultithreadAcrossParams(output_dir="mod_output")
 
-#generateRandomSampleData(num_samples=10000)
-#plotRandomDataHistogram()
+#generateRandomSampleData(num_samples=1000)
+plotRandomDataHistogram()
 
 #genge2017ModernMicrometeoritesComp()
 
@@ -1312,8 +1352,8 @@ simulateParticle(150*1.0E-6, 12000, 0*pi/180, debug_print=True)
 #        directory="output_1_percent_O2") 
 
 #plot for Figure 1f, pure wustite
-#plotParticleComparison(37.5*1.0E-6, 0, [0,30*pi/180, 45*pi/180, 60*pi/180], 
-#        directory="output_1_percent_O2") 
+#plotParticleComparison(37.5*1.0E-6, 0, [0,45*pi/180, 60*pi/180], 
+#        directory="mod_output") 
 
 #plotMultithreadResultsRadiusVsTheta(param=0)
 #printSimulationFromFiles()
