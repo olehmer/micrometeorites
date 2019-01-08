@@ -15,6 +15,8 @@ from scipy.optimize import curve_fit
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 from scipy import stats, integrate
+from matplotlib.patches import Rectangle
+from matplotlib.collections import PatchCollection
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -59,13 +61,19 @@ class initialVelocityDistribution(stats.rv_continuous):
     (1991).
 
     Note: the values generated from sample are in [km s-1]
+
+    Second note: the velocity is capped at 25 km/s. This is done because faster
+    entries require smaller time steps, which makes the model take unreasonably
+    slow. This is likely acceptable as velocities under 25 km/s account for 
+    97 percent of the incident velocities, so the final result should be 
+    representative of the distribution.
     """
 
     def __init__(self):
         """
         Set the lower limit to 11.2 [km s-1] and the upper to 72 [km s-1]
         """
-        super().__init__(a=11.2, b=72)
+        super().__init__(a=11.2, b=25)
 
 
     def _pdf(self, x):
@@ -475,8 +483,8 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
         radius   - the radius of the micrometeorite [m]
         velocity - the initial entry velocity of the micrometeorite [m s-1]
         theta    - initial entry angle of the micrometeorite [radians]
-        dt_run   - do not use this parameter, it is a control parameter used
-                   to correct for inaccurate runs
+        dt_run   - do not manually use this parameter, it is a control parameter
+                   used to correct for inaccurate runs
 
     Returns:
         radius    - the final micrometeorite radius [m]
@@ -556,15 +564,15 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
 
        
     for i in range(0, max_iter):
-        if altitude - earth_rad >= 70000:
-            rho_a, rho_o = US1976StandardAtmosphere(altitude)
-        else:
-            rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
-                    scale_height, m_bar)
-            rho_o = rho_a*0.21 #just use 21% oxygen at this point
+#        if altitude - earth_rad >= 70000:
+#            rho_a, rho_o = US1976StandardAtmosphere(altitude)
+#        else:
+#            rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
+#                    scale_height, m_bar)
+#            rho_o = rho_a*0.21 #just use 21% oxygen at this point
 
-#        rho_a = USStandardAtmosFit(altitude)
-#        rho_o = rho_a*0.21
+        rho_a = USStandardAtmosFit(altitude)
+        rho_o = rho_a*0.21*(1/21)
 
         velocity, theta = velocityUpdate(theta, velocity, rho_a, rho_m, radius, 
                 dt, altitude)
@@ -608,7 +616,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
                 dM_Fe_dt = -total_Fe/dt
                 dM_FeO_dt = dM_Fe_dt*m_FeO/m_Fe
 
-        elif total_Fe <= 0 and temp > FeO_melting_temp: 
+        elif total_Fe <= 0 and temp > FeO_melting_temp and stoich_O < 1.33: 
             #just FeO left, oxidize the liquid oxide further
             added_O_dt = rho_o*pi*radius**2*velocity
             dM_FeO_dt = added_O_dt #add the mass of the O
@@ -1070,8 +1078,8 @@ def runMultithreadAcrossParams(debug_print=False, output_dir="output"):
             if resp != "y" and resp != "Y":
                 return
 
-        rad_count = 30
-        vel_count = 30
+        rad_count = 25
+        vel_count = 25
         the_count = 3
         radii = np.linspace(5*1.0E-6, 1000*1.0E-6, rad_count)
         velocities = np.linspace(11200, 30000, vel_count)
@@ -1203,6 +1211,158 @@ def plotInputParamsForRandomData(directory="rand_sim"):
     plt.show()
 
 
+def plotFractionalFeHistogram(directory="rand_sim_hires"):
+    """
+    Plot the fractional Fe content (non-oxidized) in a histogram.
+
+    Inputs:
+        directory - the directory to find the data in
+    """
+
+    results = readModelDataFile(directory+"/results.dat")
+
+    fe_frac_array = []
+
+    m_FeO = 0.0718 #molecular weight of FeO [kg mol-1]
+    m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
+    m_O = 0.016 #molecular weight of O [kg mol-1]
+
+    tossed_magnetite = 0
+    toss_size = 0
+    pure_iron_count = 0
+
+    has_fe = 0
+    no_fe = 0
+
+
+    for i in range(len(results)):
+        final_radius, total_Fe, total_FeO, max_temp, stoich_O = results[i]
+
+        Fe_mols = total_Fe/m_Fe + total_FeO/m_FeO #total Fe in mols
+
+        #calculate the fraction of Fe in each phase
+        magnetite_fraction = 0
+        wustite_fraction = 0
+        iron_fraction = 0
+        if total_Fe == 0:
+            magnetite_fraction = (stoich_O - 1.0)*3
+            wustite_fraction = 1.0 - magnetite_fraction
+        else:
+            iron_fraction = total_Fe/m_Fe/Fe_mols
+            wustite_fraction = 1.0 - iron_fraction
+
+        if final_radius/1.0E-6 > 5 and iron_fraction < 1:
+            #clip micrometeorites with very small radii, as they aren't 
+            #in the data collection
+            #clip pure Fe micrometeorites, they didn't melt
+
+            if iron_fraction > 0:
+                has_fe += 1
+            else:
+                no_fe += 1
+
+            fe_frac_array.append(iron_fraction)
+
+    print(len(fe_frac_array))
+    plt.hist(fe_frac_array, bins=50, normed=True)
+    plt.show()
+
+
+
+def plotRandomIronPartition(directory="rand_sim"):
+    """
+    Plot the random data in the style of figure 4 from Genge et al 2017.
+
+    Inputs:
+        directory - the directory to find the data in
+    """
+
+    results = readModelDataFile(directory+"/results.dat")
+
+    particle_fractions = []
+
+    m_FeO = 0.0718 #molecular weight of FeO [kg mol-1]
+    m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
+    m_O = 0.016 #molecular weight of O [kg mol-1]
+
+    tossed_magnetite = 0
+    toss_size = 0
+    pure_iron_count = 0
+
+    has_fe = 0
+    no_fe = 0
+
+
+    for i in range(len(results)):
+        final_radius, total_Fe, total_FeO, max_temp, stoich_O = results[i]
+
+        Fe_mols = total_Fe/m_Fe + total_FeO/m_FeO #total Fe in mols
+
+        #calculate the fraction of Fe in each phase
+        magnetite_fraction = 0
+        wustite_fraction = 0
+        iron_fraction = 0
+        if total_Fe == 0:
+            magnetite_fraction = (stoich_O - 1.0)*3
+            wustite_fraction = 1.0 - magnetite_fraction
+        else:
+            iron_fraction = total_Fe/m_Fe/Fe_mols
+            wustite_fraction = 1.0 - iron_fraction
+
+        if iron_fraction == 1:
+            pure_iron_count += 1
+
+        if stoich_O >= 1.33:
+            tossed_magnetite += 1
+
+        if final_radius/1.0E-6 > 20 and iron_fraction != 1:
+            #clip micrometeorites with very small radii, as they aren't 
+            #in the data collection
+
+            if iron_fraction > 0:
+                has_fe += 1
+            else:
+                no_fe += 1
+
+            particle_fractions.append((iron_fraction, wustite_fraction,
+                magnetite_fraction))
+
+            
+
+    #sort the entries by the wustite to magnetite ratio first
+    particle_fractions.sort(key=lambda tup: (tup[2],tup[1]))
+
+
+    print("len(partices) = %d"%(len(particle_fractions)))
+    print("Tossed %d entries that were pure magnetite"%(tossed_magnetite))
+    print("Pure iron mms %d"%(pure_iron_count))
+    print("Has iron: %d, no iron: %d, ratio: %0.2f"%(has_fe, no_fe, float(has_fe/no_fe)))
+
+    num_entries = len(particle_fractions)
+    width = 1
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    for i in range(num_entries):
+#        print(particle_fractions[i])
+#        if i == 700:
+#        print(particle_fractions[i])
+        iron_frac, wust_frac, mag_frac = particle_fractions[i]
+        #draw the rectangles representing the fraction of each Fe phase
+        if iron_frac > 0:
+            r0 = Rectangle((i, 0), width, iron_frac, color="blue")
+            r1 = Rectangle((i, iron_frac), width, wust_frac, color="red")
+            ax.add_patch(r0)
+            ax.add_patch(r1)
+        else:
+            r0 = Rectangle((i, 0), width, wust_frac, color="red")
+            r1 = Rectangle((i, wust_frac), width, mag_frac, color="black")
+            ax.add_patch(r0)
+            ax.add_patch(r1)
+
+
+    plt.xlim(0, num_entries)
+    plt.show()
+
 
 
 def plotRandomDataHistogram(directory="rand_sim", plot_num=1):
@@ -1229,11 +1389,12 @@ def plotRandomDataHistogram(directory="rand_sim", plot_num=1):
     for i in range(len(results)):
         final_radius, total_Fe, total_FeO, max_temp, stoich_O = results[i]
 
-        Fe_mols = total_Fe/m_Fe + total_FeO/m_FeO/stoich_O #total Fe in mols
+        Fe_mols = total_Fe/m_Fe + total_FeO/m_FeO #total Fe in mols
         O_mols = total_FeO/m_FeO*stoich_O #total O in mols
         O_perc = O_mols/(Fe_mols + O_mols)
 
-        if final_radius/1.0E-6 > 2.5:  
+
+        if final_radius/1.0E-6 > 25 and total_FeO > 0 and stoich_O < 1.33:  
             #clip micrometeorites with very small radii, as they aren't 
             #in the data collection
 
@@ -1319,8 +1480,9 @@ def plotParameterSpace(thetas_in, directory="output", color=0):
         thetas_in          - the theta values to use in the plot
         directory          - the directory that holds the inputs files
         color     - the parameter to show on the colorbar. The options are:
-                        0: Final pure Fe of the micrometeorite
+                        0: Final pure Fe of the micrometeorite [fraction]
                         1: Maximum temperature reached during entry [K]
+                        2: The final stoichiometry of the oxide
 
     NOTE: the thetas plotted will be the closest thetas found in the data file.
     If the theta you want isn't exactly correct just rerun the data files to 
@@ -1368,6 +1530,9 @@ def plotParameterSpace(thetas_in, directory="output", color=0):
         elif color == 1:
             min_z = 1000
             max_z = 3800
+        elif color == 2:
+            min_z = 1
+            max_z = 1.3333
 
         for j in range(len(inputs)):
             if inputs[j][2] == theta_vals[i]:
@@ -1381,6 +1546,9 @@ def plotParameterSpace(thetas_in, directory="output", color=0):
 
                 elif color == 1:
                     z = max_temp
+                
+                elif color == 2:
+                    z = stoich_O
 
                 max_rad_size = 200*micron
                 size_frac = abs(final_radius-max_rad_size)/max_rad_size
@@ -1402,6 +1570,8 @@ def plotParameterSpace(thetas_in, directory="output", color=0):
             cbar.set_label("Final Pure Fe Percent")
         elif color ==1 :
             cbar.set_label("Maximum Temperature [K]")
+        elif color ==2:
+            cbar.set_label("Oxide Stoichiometry")
 
 
 
@@ -1534,11 +1704,19 @@ def testDist(dist, use_log=False):
 
 #simulateParticle(500*1.0E-6, 13000, 0*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
-runMultithreadAcrossParams(output_dir="mod_output")
+#runMultithreadAcrossParams(output_dir="mod_output_1_percent")
 
-#generateRandomSampleData(num_samples=1000, output_dir="rand_sim")
-#plotRandomDataHistogram()
+#generateRandomSampleData(num_samples=500, output_dir="vary_ox/01_percent")
+#plotRandomDataHistogram(directory="rand_sim_hires")
+
 #plotInputParamsForRandomData(directory="rand_sim")
+
+#plotRandomIronPartition(directory="rand_sim")
+
+#plotFractionalFeHistogram(directory="vary_ox/01_percent")
+
+
+
 
 #genge2017ModernMicrometeoritesComp()
 
@@ -1552,7 +1730,7 @@ runMultithreadAcrossParams(output_dir="mod_output")
 #        directory="mod_output") 
 
 #plot for pure Fe
-#plotParameterSpace([0, 45*pi/180, 70*pi/180], directory="mod_output",
+#plotParameterSpace([0, 45*pi/180, 70*pi/180], directory="mod_output_1_percent",
 #        color = 0) 
 
 #plotMultithreadResultsRadiusVsTheta(param=0)
