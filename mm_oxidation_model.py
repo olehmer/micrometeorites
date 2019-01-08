@@ -564,15 +564,16 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
 
        
     for i in range(0, max_iter):
-#        if altitude - earth_rad >= 70000:
-#            rho_a, rho_o = US1976StandardAtmosphere(altitude)
-#        else:
+        if altitude - earth_rad >= 70000:
+            rho_a, rho_o = US1976StandardAtmosphere(altitude)
+        else:
+            rho_a = USStandardAtmosFit(altitude)
+            rho_o = rho_a*0.21*(21/21)
+
 #            rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
 #                    scale_height, m_bar)
 #            rho_o = rho_a*0.21 #just use 21% oxygen at this point
 
-        rho_a = USStandardAtmosFit(altitude)
-        rho_o = rho_a*0.21*(1/21)
 
         velocity, theta = velocityUpdate(theta, velocity, rho_a, rho_m, radius, 
                 dt, altitude)
@@ -1263,10 +1264,13 @@ def plotFractionalFeHistogram(directory="rand_sim_hires"):
 
             fe_frac_array.append(iron_fraction)
 
-    print(len(fe_frac_array))
+    mean = np.mean(fe_frac_array)
+    std = np.std(fe_frac_array)
+    print("Number of samples: %d"%(len(fe_frac_array)))
+    print("Mean: %0.4f, Std: %0.4f"%(mean,std))
+    print("Total with Fe Core: %d (%d without)"%(has_fe, no_fe))
     plt.hist(fe_frac_array, bins=50, normed=True)
     plt.show()
-
 
 
 def plotRandomIronPartition(directory="rand_sim"):
@@ -1706,14 +1710,14 @@ def testDist(dist, use_log=False):
 #compareStandardAndHydrostaticAtmospheres()
 #runMultithreadAcrossParams(output_dir="mod_output_1_percent")
 
-#generateRandomSampleData(num_samples=500, output_dir="vary_ox/01_percent")
+generateRandomSampleData(num_samples=500, output_dir="vary_ox/21_percent_std")
 #plotRandomDataHistogram(directory="rand_sim_hires")
 
 #plotInputParamsForRandomData(directory="rand_sim")
 
 #plotRandomIronPartition(directory="rand_sim")
 
-#plotFractionalFeHistogram(directory="vary_ox/01_percent")
+#plotFractionalFeHistogram(directory="vary_ox/21_percent_std")
 
 
 
