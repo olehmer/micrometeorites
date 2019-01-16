@@ -10,7 +10,7 @@
 # Contact info@lehmer.us with questions or comments on this code.
 ###############################################################################
 
-from math import sin, cos, sqrt, atan, asin, pi, exp
+from math import sin, cos, sqrt, atan, asin, pi, exp, floor
 from scipy.optimize import curve_fit
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
@@ -28,6 +28,7 @@ kb = 1.381E-23 #Boltzmann constant [J K-1]
 proton_mass = 1.67E-27 #mass of a proton [kg]
 sigma = 5.67E-8 #Stefan-Boltzmann constant [W m-2 K-4]
 gas_const = 8.314 #ideal gas constant [J mol-1 K-1]
+fudge = 2
 
 
 class impactAngleDistribution(stats.rv_continuous):
@@ -212,6 +213,95 @@ def genge2017ModernMicrometeoritesComp():
     plt.show()
 
 
+def Genge_2017_Fe_Fraction():
+    """
+    Using the data from Figure 4 of Genge et al. (2017), this function returns
+    the Fe fraction for each of the reported micrometeorites. The values in 
+    the figure are giving in %-area. It is worth noting that this is a minimum
+    value for the Fe bead as the preparation process is unlikely to grind the
+    bead at exactly the middle, so the widest Fe bead may not be displayed.
+
+    From the data in Figure 4 there are 34 micrometeorites with Fe cores, and
+    50 micrometeorites that are fully oxidized to either wustite, magnetite, or
+    some combination of the two.
+
+    Returns:
+        fe_mass_fractions - array of Fe mass fractions for each micrometeorite
+    """
+
+    #the data from figure 4, truncated to 3 decimal points
+    genge_data = [
+            0.921,
+            0.487,
+            0.485,
+            0.437,
+            0.431,
+            0.422,
+            0.413,
+            0.356,
+            0.333,
+            0.319,
+            0.300,
+            0.287,
+            0.276,
+            0.264,
+            0.212,
+            0.211,
+            0.181,
+            0.178,
+            0.171,
+            0.171,
+            0.169,
+            0.127,
+            0.127,
+            0.108,
+            0.155,
+            0.261,
+            0.052,
+            0.393,
+            0.493,
+            0.281,
+            0.390,
+            0.076,
+            0.191,
+            0.020]
+
+
+    return genge_data
+
+    
+def zStatistic(population_data, sample_data):
+    """
+    Calculate the z score and the corresponding probability that the sample
+    data is from the same population as the population data. It is assumed that
+    the population (calculated from the model) is approximately normally 
+    distributed.
+
+    Inputs:
+        population_data - 1D array of population data
+        sample_data     - 1D array of sample data
+
+    Returns:
+        p_value - the probability the sample is from the population (two sided)
+    """
+
+    pop_mean = np.mean(population_data)
+    pop_std = np.std(population_data)
+
+    sample_mean = np.mean(sample_data)
+
+    sample_size = len(sample_data)
+    ste = pop_std/(sample_size)**0.5 #standard error
+
+    z_score = (sample_mean - pop_mean)/ste
+    print(z_score)
+
+    p_value = stats.norm.sf(abs(z_score))*2
+
+    return p_value
+
+
+
 def USStandardAtmosFit(alt, a=1.273, b=2.934, c=0.901, d=0.3766):
     """
     The best fit to the Us Standard atmosphere. The fitting was done with
@@ -242,21 +332,184 @@ def USStandardAtmosFit(alt, a=1.273, b=2.934, c=0.901, d=0.3766):
         rho_a[i] = m_bar*pressure/(kb*isothermal_temp)
     return rho_a
 
+def ReadAndProcessAtmosData():
+    """
+    Reads the atmospheric model data from the file atmosphere_data.txt. This
+    data comes from the MSISE-90 model. It is used in the
+    AtmosphericDensityAndOxygen() function.
+    """
+
+    data = np.loadtxt("atmosphere_data.txt", skiprows=32)
+    alt_data = data[:,0]
+    o_density = data[:,1] #number density [cm-3]
+    o2_density = data[:,2] #number density [cm-3]
+    rho_a_data = data[:,3] #total atmospheric density [g cm-3]
+
+    #convert the number densities for O and O2 to total oxygen density. The
+    #1.0E6 factor converts from cm-3 to m-3
+    o_atom_mass = 16*proton_mass
+    rho_o_data = (o_density + 2*o2_density)*o_atom_mass*(1.0E6)
+
+    #convert the density to [kg m-3]
+    rho_a_data = rho_a_data*1000
+
+    #print them nicely for copy and paste
+    array_to_print = rho_o_data
+    result = "["
+    for i in range(len(array_to_print)):
+        result += "%2.2e, "%(array_to_print[i])
+    result += "]"
+
+
+    print(result)
+
+
+def AtmosphericDensityAndOxygen(altitude):
+    """
+    This function will return the atmospheric density and the total oxygen
+    density (including atomic O and O2) for the given altitude. This is done
+    using data from the MSISE-90 model. The data is in 1km steps, which this
+    function will linearly interpolate between. The data arrays come from the
+    function ReadAndProcessAtmosData(). The arrays were hardcoded to avoid 
+    reading them in during each model run.
+
+    Inputs:
+        altitude - the altitude above the Earth's center [km]
+
+    Returns:
+        rho_a - atmospheric density [kg m-3]
+        rho_o - total oxygen density [kg m-3]
+    """
+
+    alt = (altitude - earth_rad)/1000 #convert to traditional altitude [km]
+    rho_a = 0
+    rho_o = 0
+
+    #data from atmosphere_data.txt
+    alt_data = [0.00e+00, 1.00e+00, 2.00e+00, 3.00e+00, 4.00e+00, 5.00e+00, 
+            6.00e+00, 7.00e+00, 8.00e+00, 9.00e+00, 1.00e+01, 1.10e+01, 
+            1.20e+01, 1.30e+01, 1.40e+01, 1.50e+01, 1.60e+01, 1.70e+01, 
+            1.80e+01, 1.90e+01, 2.00e+01, 2.10e+01, 2.20e+01, 2.30e+01, 
+            2.40e+01, 2.50e+01, 2.60e+01, 2.70e+01, 2.80e+01, 2.90e+01, 
+            3.00e+01, 3.10e+01, 3.20e+01, 3.30e+01, 3.40e+01, 3.50e+01, 
+            3.60e+01, 3.70e+01, 3.80e+01, 3.90e+01, 4.00e+01, 4.10e+01, 
+            4.20e+01, 4.30e+01, 4.40e+01, 4.50e+01, 4.60e+01, 4.70e+01, 
+            4.80e+01, 4.90e+01, 5.00e+01, 5.10e+01, 5.20e+01, 5.30e+01, 
+            5.40e+01, 5.50e+01, 5.60e+01, 5.70e+01, 5.80e+01, 5.90e+01, 
+            6.00e+01, 6.10e+01, 6.20e+01, 6.30e+01, 6.40e+01, 6.50e+01,
+            6.60e+01, 6.70e+01, 6.80e+01, 6.90e+01, 7.00e+01, 7.10e+01, 
+            7.20e+01, 7.30e+01, 7.40e+01, 7.50e+01, 7.60e+01, 7.70e+01, 
+            7.80e+01, 7.90e+01, 8.00e+01, 8.10e+01, 8.20e+01, 8.30e+01, 
+            8.40e+01, 8.50e+01, 8.60e+01, 8.70e+01, 8.80e+01, 8.90e+01, 
+            9.00e+01, 9.10e+01, 9.20e+01, 9.30e+01, 9.40e+01, 9.50e+01, 
+            9.60e+01, 9.70e+01, 9.80e+01, 9.90e+01, 1.00e+02, 1.01e+02, 
+            1.02e+02, 1.03e+02, 1.04e+02, 1.05e+02, 1.06e+02, 1.07e+02, 
+            1.08e+02, 1.09e+02, 1.10e+02, 1.11e+02, 1.12e+02, 1.13e+02, 
+            1.14e+02, 1.15e+02, 1.16e+02, 1.17e+02, 1.18e+02, 1.19e+02, 
+            1.20e+02, 1.21e+02, 1.22e+02, 1.23e+02, 1.24e+02, 1.25e+02,
+            1.26e+02, 1.27e+02, 1.28e+02, 1.29e+02, 1.30e+02, 1.31e+02, 
+            1.32e+02, 1.33e+02, 1.34e+02, 1.35e+02, 1.36e+02, 1.37e+02,
+            1.38e+02, 1.39e+02, 1.40e+02, 1.41e+02, 1.42e+02, 1.43e+02,
+            1.44e+02, 1.45e+02, 1.46e+02, 1.47e+02, 1.48e+02, 1.49e+02,
+            1.50e+02, 1.51e+02, 1.52e+02, 1.53e+02, 1.54e+02, 1.55e+02,
+            1.56e+02, 1.57e+02, 1.58e+02, 1.59e+02, 1.60e+02, 1.61e+02,
+            1.62e+02, 1.63e+02, 1.64e+02, 1.65e+02, 1.66e+02, 1.67e+02, 
+            1.68e+02, 1.69e+02, 1.70e+02, 1.71e+02, 1.72e+02, 1.73e+02,
+            1.74e+02, 1.75e+02, 1.76e+02, 1.77e+02, 1.78e+02, 1.79e+02,
+            1.80e+02, 1.81e+02, 1.82e+02, 1.83e+02, 1.84e+02, 1.85e+02,
+            1.86e+02, 1.87e+02, 1.88e+02, 1.89e+02, 1.90e+02]
+    
+    rho_a_data = [1.21e+00, 1.09e+00, 9.84e-01, 8.90e-01, 8.05e-01, 7.28e-01, 
+            6.57e-01, 5.90e-01, 5.28e-01, 4.70e-01, 4.15e-01, 3.65e-01, 
+            3.19e-01, 2.77e-01, 2.39e-01, 2.06e-01, 1.76e-01, 1.50e-01, 
+            1.28e-01, 1.09e-01, 9.23e-02, 7.86e-02, 6.69e-02, 5.70e-02, 
+            4.86e-02, 4.15e-02, 3.55e-02, 3.03e-02, 2.59e-02, 2.22e-02,
+            1.90e-02, 1.63e-02, 1.39e-02, 1.20e-02, 1.03e-02, 8.84e-03, 
+            7.63e-03, 6.60e-03, 5.72e-03, 4.97e-03, 4.32e-03, 3.77e-03,
+            3.30e-03, 2.89e-03, 2.54e-03, 2.24e-03, 1.98e-03, 1.75e-03, 
+            1.55e-03, 1.37e-03, 1.22e-03, 1.08e-03, 9.60e-04, 8.53e-04,
+            7.58e-04, 6.74e-04, 5.98e-04, 5.31e-04, 4.71e-04, 4.17e-04,
+            3.69e-04, 3.26e-04, 2.88e-04, 2.53e-04, 2.23e-04, 1.96e-04,
+            1.71e-04, 1.50e-04, 1.31e-04, 1.14e-04, 9.88e-05, 8.57e-05,
+            7.41e-05, 6.37e-05, 5.50e-05, 4.74e-05, 4.08e-05, 3.51e-05,
+            3.00e-05, 2.55e-05, 2.16e-05, 1.82e-05, 1.53e-05, 1.27e-05,
+            1.05e-05, 8.67e-06, 7.10e-06, 5.79e-06, 4.69e-06, 3.79e-06,
+            3.05e-06, 2.45e-06, 1.96e-06, 1.57e-06, 1.26e-06, 1.01e-06,
+            8.20e-07, 6.65e-07, 5.43e-07, 4.47e-07, 3.70e-07, 3.09e-07,
+            2.60e-07, 2.21e-07, 1.88e-07, 1.61e-07, 1.38e-07, 1.19e-07,
+            1.03e-07, 8.90e-08, 7.70e-08, 6.66e-08, 5.77e-08, 4.99e-08,
+            4.33e-08, 3.76e-08, 3.27e-08, 2.86e-08, 2.50e-08, 2.19e-08,
+            1.93e-08, 1.70e-08, 1.51e-08, 1.34e-08, 1.20e-08, 1.08e-08,
+            9.76e-09, 8.87e-09, 8.09e-09, 7.41e-09, 6.81e-09, 6.28e-09,
+            5.81e-09, 5.38e-09, 5.00e-09, 4.66e-09, 4.36e-09, 4.08e-09,
+            3.82e-09, 3.59e-09, 3.38e-09, 3.18e-09, 3.00e-09, 2.84e-09,
+            2.69e-09, 2.55e-09, 2.42e-09, 2.30e-09, 2.18e-09, 2.08e-09,
+            1.98e-09, 1.89e-09, 1.81e-09, 1.72e-09, 1.65e-09, 1.58e-09,
+            1.51e-09, 1.45e-09, 1.39e-09, 1.33e-09, 1.28e-09, 1.23e-09,
+            1.18e-09, 1.14e-09, 1.10e-09, 1.06e-09, 1.02e-09, 9.82e-10,
+            9.47e-10, 9.14e-10, 8.83e-10, 8.53e-10, 8.24e-10, 7.96e-10,
+            7.70e-10, 7.45e-10, 7.21e-10, 6.98e-10, 6.76e-10, 6.55e-10,
+            6.35e-10, 6.16e-10, 5.97e-10, 5.79e-10, 5.62e-10, 5.46e-10, 
+            5.30e-10, 5.14e-10, 5.00e-10, 4.86e-10, 4.72e-10]
+
+    rho_o_data = [2.83e-01, 2.54e-01, 2.29e-01, 2.07e-01, 1.88e-01, 1.70e-01, 
+            1.53e-01, 1.38e-01, 1.23e-01, 1.09e-01, 9.68e-02, 8.51e-02,
+            7.43e-02, 6.46e-02, 5.58e-02, 4.79e-02, 4.10e-02, 3.50e-02,
+            2.98e-02, 2.53e-02, 2.15e-02, 1.83e-02, 1.56e-02, 1.33e-02,
+            1.13e-02, 9.67e-03, 8.26e-03, 7.06e-03, 6.04e-03, 5.17e-03,
+            4.42e-03, 3.79e-03, 3.25e-03, 2.78e-03, 2.39e-03, 2.06e-03,
+            1.78e-03, 1.54e-03, 1.33e-03, 1.16e-03, 1.01e-03, 8.80e-04,
+            7.69e-04, 6.74e-04, 5.93e-04, 5.22e-04, 4.60e-04, 4.07e-04,
+            3.60e-04, 3.19e-04, 2.83e-04, 2.52e-04, 2.24e-04, 1.99e-04,
+            1.77e-04, 1.57e-04, 1.39e-04, 1.24e-04, 1.10e-04, 9.72e-05,
+            8.59e-05, 7.59e-05, 6.70e-05, 5.90e-05, 5.19e-05, 4.55e-05,
+            3.99e-05, 3.48e-05, 3.04e-05, 2.64e-05, 2.30e-05, 1.99e-05,
+            1.72e-05, 1.48e-05, 1.28e-05, 1.10e-05, 9.45e-06, 8.11e-06,
+            6.93e-06, 5.89e-06, 4.99e-06, 4.19e-06, 3.51e-06, 2.91e-06,
+            2.41e-06, 1.97e-06, 1.61e-06, 1.31e-06, 1.06e-06, 8.49e-07,
+            6.80e-07, 5.43e-07, 4.32e-07, 3.44e-07, 2.75e-07, 2.20e-07,
+            1.77e-07, 1.43e-07, 1.16e-07, 9.48e-08, 7.81e-08, 6.49e-08,
+            5.43e-08, 4.57e-08, 3.87e-08, 3.29e-08, 2.81e-08, 2.40e-08,
+            2.06e-08, 1.77e-08, 1.52e-08, 1.31e-08, 1.13e-08, 9.76e-09,
+            8.44e-09, 7.32e-09, 6.37e-09, 5.56e-09, 4.86e-09, 4.28e-09,
+            3.77e-09, 3.35e-09, 2.98e-09, 2.67e-09, 2.40e-09, 2.17e-09,
+            1.98e-09, 1.81e-09, 1.67e-09, 1.54e-09, 1.43e-09, 1.33e-09,
+            1.24e-09, 1.16e-09, 1.08e-09, 1.02e-09, 9.60e-10, 9.07e-10,
+            8.57e-10, 8.13e-10, 7.71e-10, 7.33e-10, 6.98e-10, 6.66e-10,
+            6.36e-10, 6.08e-10, 5.81e-10, 5.57e-10, 5.34e-10, 5.13e-10,
+            4.93e-10, 4.74e-10, 4.56e-10, 4.39e-10, 4.23e-10, 4.08e-10,
+            3.94e-10, 3.81e-10, 3.68e-10, 3.56e-10, 3.44e-10, 3.34e-10,
+            3.23e-10, 3.13e-10, 3.04e-10, 2.95e-10, 2.86e-10, 2.78e-10,
+            2.70e-10, 2.63e-10, 2.55e-10, 2.48e-10, 2.42e-10, 2.35e-10,
+            2.29e-10, 2.23e-10, 2.18e-10, 2.12e-10, 2.07e-10, 2.02e-10,
+            1.97e-10, 1.92e-10, 1.87e-10, 1.83e-10, 1.79e-10, 1.75e-10,
+            1.71e-10, 1.67e-10, 1.63e-10, 1.60e-10, 1.56e-10]
+    
+    if alt < 190 and alt > 0:
+        #linearly interpolate between the two closest points
+        idx = int(floor(alt))
+        frac_low = 1 - (alt-alt_data[idx])/(alt_data[idx+1] - 
+                alt_data[idx])
+
+        rho_a = rho_a_data[idx]*frac_low + rho_a_data[idx+1]*(1-frac_low)
+        rho_o = rho_o_data[idx]*frac_low + rho_o_data[idx+1]*(1-frac_low)
+
+    return rho_a, rho_o
+
+
 
 def US1976StandardAtmosphere(altitude):
     """
     Gives the total density and the oxygen density for a given altitude from
     the 1976 US Standard Atmosphere. Assume no atmosphere above 190km, which 
-    follows Love and Brownlee (1991). This function is not to be called for
-    altitudes below 70 km (use the other function, which assumes hydrostatic
-    equilibrium).
+    follows Love and Brownlee (1991). 
 
     Inputs:
         altitude - the micrometeorite altitude above the Earth's center [m]
     
     Returns:
         rho_a - total atmospheric density [kg m-3]
-        rho_o - total oxygen density (all assumed atomic O) [kg m-3]
+        rho_o - total oxygen density (both O2 and atomic O) [kg m-3]
     """
 
     alt = altitude - earth_rad 
@@ -264,10 +517,17 @@ def US1976StandardAtmosphere(altitude):
     rho_o = 0
 
     alt_data = [ #altitude points [m]
+        #70000, #point from hydrostatic
+        40000,
+        45000,
+        50000,
+        55000,
+        60000,
+        65000, 
         70000,
         75000,
         80000,
-        85000,
+        86000,
         90000,
         95000,
         100000,
@@ -282,10 +542,17 @@ def US1976StandardAtmosphere(altitude):
         190000]
 
     rho_a_data = [ #atmospheric density points [kg m-3]
-        8.82E-05,
-        3.99E-05,
-        1.85E-05,
-        8.22E-06,
+       # 6.82E-05, #hydrostatic point
+        3.9957E-03,
+        1.9663E-03,
+        1.0269E-03,
+        5.6810E-04,
+        3.0968E-04,
+        1.6321E-04,
+        8.82E-05, #70km
+        3.99E-05, #75km
+        1.85E-05, #80km
+        6.958E-06, #86km
         3.42E-06,
         1.39E-06,
         5.60E-07,
@@ -300,9 +567,20 @@ def US1976StandardAtmosphere(altitude):
         3.58E-10]
 
     rho_o_data = [ #total atmospheric oxygen [kg m-3]
-        3.71E-05,
-        1.68E-05,
-        7.75E-06,
+        #O2 is 21% by volume, or about 23.3% by weight
+        #rho_a_data[0]*0.233, #hydrostatic point
+        rho_a_data[0]*0.233, #the entries up to 86km are well mixed
+        rho_a_data[1]*0.233,
+        rho_a_data[2]*0.233,
+        rho_a_data[3]*0.233,
+        rho_a_data[4]*0.233,
+        rho_a_data[5]*0.233,
+        rho_a_data[6]*0.233,
+        rho_a_data[7]*0.233,
+        rho_a_data[8]*0.233,
+#        3.71E-05, #too high by a factor of 2
+#        1.68E-05, #too high by a factor of 2
+#        7.75E-06, #too high by a factor of 2
         1.61E-06,
         7.92E-07,
         3.21E-07,
@@ -317,8 +595,14 @@ def US1976StandardAtmosphere(altitude):
         2.05E-10,
         1.54E-10]
 
+    if alt < 40000: #under 80km in altitude
+        #use the hydrostatic approximation in this case.
+        rho_a = atmosphericDensity(altitude)
+        rho_o = rho_a*0.233 #23.3% by mass for O2
 
-    if alt < 190000:
+    elif alt < 190000:
+        #find the point and the data point above and below. Then linearly 
+        #interpolate between the two to find the value.
         idx = 0
         for i in range(0,len(alt_data)-1):
             if alt > alt_data[i] and alt < alt_data[i+1]:
@@ -419,29 +703,31 @@ def positionUpdate(altitude, velocity, theta, phi, dt):
     return new_theta, phi, new_alt 
 
 
-def atmosphericDensity(p_sur, altitude, temp, scale_height, m_bar, beta=1.0):
+def atmosphericDensity(altitude):
     """
     Returns the atmospheric density at a given altitude assuming an isothermal
     atmosphere that is in hydrostatic equilibrium and well mixed.
 
     Inputs:
-        p_sur        - the surface pressure of the atmosphere [Pa]
         altitude     - the distance above Earth's center [m]
-        temp         - the isothermal atmospheric temperature [K]
-        scale_height - the scale height of the atmosphere [m]
-        m_bar        - mean molecular weight of the atmosphere [kg]
 
     Returns:
         rho_a - atmosphere density at altitude [kg m-3]
     """
 
+    #atmospheric constants, taken from David's book
+    m_bar = 29*proton_mass #mean molecular weight of the atmosphere [kg m-3]
+    scale_height = 8400 #atmospheric scale height [m]
+    isothermal_temp = 288 #temperature of the atmosphere [K]
+    p_sur = 1.0E5 #surface pressure [Pa]
+
+
     height = altitude - earth_rad
     if height < 0:
         #can happen on the last run
         height = 0
-    pressure = p_sur*exp(-height/scale_height*beta)
-    rho_a = m_bar*pressure/(kb*temp)
-
+    pressure = p_sur*exp(-height/scale_height)
+    rho_a = m_bar*pressure/(kb*isothermal_temp)
     
     return rho_a
 
@@ -472,8 +758,6 @@ def updateRadiusAndDensity(M_Fe, M_FeO):
     return new_rad, new_rho
 
 
-
-
 def simulateParticle(radius, velocity, theta, debug_print=False,
         dt_run = 0):
     """
@@ -501,13 +785,9 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
     input_the = theta
     input_debug = debug_print
 
-    #atmospheric constants, taken from David's book
-    m_bar = 29*proton_mass #mean molecular weight of the atmosphere [kg m-3]
-    scale_height = 8400 #atmospheric scale height [m]
-    isothermal_temp = 288 #temperature of the atmosphere [K]
-    p_sur = 1.0E5 #surface pressure [Pa]
-
-    temp = isothermal_temp #assumed temp of micrometeorite at start
+    
+    temp = 300 #assumed temp of micrometeorite at start [K], this doesn't
+               #really matter (just can't be 0).
 
     rho_m = 7000.0 #micrometeorite density, starts as pure Fe [kg m-3]
 
@@ -515,7 +795,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
     total_Fe = 4/3*pi*radius**3*rho_m #mass of Fe
     total_FeO = 0 #mass of FeO
     stoich_O = 1.0 # the number of O atoms per Fe atoms in Feo 
-    Fe_metling_temp = 1809 #temperature at which Fe melts [K]
+    Fe_melting_temp = 1809 #temperature at which Fe melts [K]
     FeO_melting_temp = 1720 #melting temp of Fe) [K]
 
 
@@ -527,22 +807,19 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
     #figure 2 of that paper shows c_sp as 696 though?
     c_sp = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
     #figure 2 in the same paper shows a c_sp of 696 [J K-1 kg-1], so try both?
-    #c_sp = 4.377E-5
-    #c_sp = 949.26 #specific heat of FeO from TODO
+    c_sp = 696 #specific heat of FeO from TODO
     c_sp_Fe = 440 #specific heat of Fe
-    c_sp_Fe3O4 = 619.4 #specific heat of Fe3O4
 
     #latent heat of vaporization. This value is for silicates and taken from
     #love and Brownlee (1991) by Genge. Genge doesn't say that he uses a 
     #different L_v for FeO... But Fe is only slightly different (6.265E6) so 
     #it's probably ok.
-    #L_v = 6.050E6 #latent heat of vaporization for FeO [J kg-1] TODO: is it?
-    L_v = 6.265E6 #latent heat of vaporization for Fe [j kg-1]
+    L_v = 6.050E6 #latent heat of vaporization for FeO [J kg-1] TODO: is it?
+    #L_v = 6.265E6 #latent heat of vaporization for Fe [j kg-1]
 
     m_Fe = 0.0558 #molecular weight of Fe [kg mol-1]
     m_O = 0.016 #molecular weight of O [kg mol-1]
     m_FeO = m_Fe + m_O #molecular weight of FeO [kg mol-1]
-    m_Fe3O4 = m_Fe*3 + m_O*4 #molecular weight of Fe3O4 [kg mol-1]
 
     max_iter = 10000000
     dt = 0.01*10**(-dt_run) #time step [s]
@@ -552,28 +829,20 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
     dt_attempts = 0 #number of times timestep has been reduced
 
     max_temp = 0
+    alt_of_max = 0
 
     #storage arrays
-    temps = np.zeros(max_iter)
-    velocities = np.zeros(max_iter)
-    radii = np.zeros(max_iter)
-    altitudes = np.zeros(max_iter)
-    times = np.zeros(max_iter)
-    stoichs = np.zeros(max_iter)
-
-
+    temps = []
+    velocities =[] 
+    radii = []
+    altitudes =[] 
+    times = []
+    stoichs = [] 
+    fe_fractions = [] 
        
     for i in range(0, max_iter):
-        if altitude - earth_rad >= 70000:
-            rho_a, rho_o = US1976StandardAtmosphere(altitude)
-        else:
-            rho_a = USStandardAtmosFit(altitude)
-            rho_o = rho_a*0.21*(21/21)
-
-#            rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
-#                    scale_height, m_bar)
-#            rho_o = rho_a*0.21 #just use 21% oxygen at this point
-
+        #rho_a, rho_o = US1976StandardAtmosphere(altitude)
+        rho_a, rho_o = AtmosphericDensityAndOxygen(altitude)
 
         velocity, theta = velocityUpdate(theta, velocity, rho_a, rho_m, radius, 
                 dt, altitude)
@@ -593,7 +862,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
 
         #the mass evaporation of Fe
         dM_evap_dt_Fe = 4*pi*radius**2*p_v_Fe*sqrt(m_Fe/(2*pi*gas_const*temp))
-
+        dM_evap_dt_Fe = 0
 
         #the total mass lost
         dM_evap_dt = dM_evap_dt_FeO #this will be updated below
@@ -605,7 +874,7 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
         added_O_dt = 0 # the oxygen added once pure FeO
 
         #make sure there's some Fe before trying to oxidize it
-        if total_Fe > 0 and temp > Fe_metling_temp:
+        if total_Fe > 0 and temp > FeO_melting_temp:
             #equation 11, Fe lost to oxidation [kg s-1]
             dM_Fe_dt = -m_Fe/m_O*rho_o*pi*radius**2*velocity
 
@@ -647,14 +916,12 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
 
         total_FeO -= FeO_loss
         total_Fe -= Fe_loss
-
-
               
         #genge equation 4
         if added_O_dt == 0:
-            dq_ox_dt = 3716*dM_FeO_dt
+            dq_ox_dt = 3716000*dM_FeO_dt
         else:
-            dq_ox_dt = 3716*(added_O_dt*m_FeO/m_O)
+            dq_ox_dt = 3716000*(added_O_dt*m_FeO/m_O)
 
         #equation 6 of Genge (2016). This has the oxidation energy considered
         #which is described by equation 14
@@ -675,30 +942,20 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
 
         if temp > max_temp:
             max_temp = float(temp) #temp was being passed by reference??
-
-#        if debug_print:
-#            try:
-#                print("%3d: Fe: %3.0f%%, temp: %5.0f, radius: %0.1f [microns]"%(i, 
-#                    total_Fe/(total_Fe+total_FeO)*100,temp,radius/(1.0E-6)))
-#
-#                if total_FeO < 0:
-#                    print("     FeO under 0! %2.2e"%(total_FeO))
-#            except:
-#                print(total_FeO)
-#                print(total_Fe)
-#                print(radius)
-#                print(temp)
+            alt_of_max = altitude - earth_rad
 
 
-        temps[i]=temp
-        velocities[i] = velocity
-        radii[i] = radius
-        altitudes[i] = altitude
-        times[i] = dt*i
-        stoichs[i] = stoich_O
+        if debug_print:
+            temps.append(temp)
+            velocities.append(velocity)
+            radii.append(radius)
+            altitudes.append(altitude)
+            times.append(dt*i)
+            stoichs.append(stoich_O)
+            fe_fractions.append(total_Fe/(total_Fe + total_FeO))
 
         #check if the particle has started cooling significantly
-        if temp < max_temp/2 or radius == 0:
+        if (temp < max_temp/2 and temp < FeO_melting_temp/2) or radius == 0:
             end_index = i
             if debug_print:
                 print("Early end (%d steps)"%i)
@@ -725,15 +982,15 @@ def simulateParticle(radius, velocity, theta, debug_print=False,
         if debug_print:
             print("\n\n")
             print("Final radius: %0.1f [microns]"%(radius*1.0E6))
-            print("Maximum temp: %0.0f [K]"%(max_temp))
+            print("Maximum temp: %0.0f [K] at %0.0f [km]"%(max_temp, 
+                alt_of_max/1000))
             print("Fe mass fraction %0.2f"%(total_Fe/(total_Fe+total_FeO)))
             print("Oxygen stoichiometry: %0.2f"%(stoich_O))
             print("Max dT = %0.1f"%(max_dT*dt))
             print("Number of runs: %d"%(dt_run+1))
 
-            plotParticleParameters(temps[0:end_index+1], velocities[0:end_index+1], 
-                    radii[0:end_index+1], altitudes[0:end_index+1], 
-                    times[0:end_index+1], stoichs[0:end_index+1])
+            plotParticleParameters(temps, velocities, radii, altitudes, times, 
+                    stoichs, fe_fractions)
 
         return radius, total_Fe, total_FeO, max_temp, stoich_O
 
@@ -747,28 +1004,34 @@ def compareStandardAndHydrostaticAtmospheres():
     isothermal_temp = 288 #temperature of the atmosphere [K]
     p_sur = 1.0E5 #surface pressure [Pa]
 
-    altitudes = np.linspace(earth_rad+7.0E4,earth_rad+1.9E5, 20)
-    altitudes2 = np.linspace(earth_rad+5.0E4,earth_rad+1.9E5, 100)
+    altitudes = np.linspace(earth_rad+3.0E4,earth_rad+1.9E5, 20)
+    altitudes2 = np.linspace(earth_rad+3.0E4,earth_rad+1.9E5, 40)
 
     stnd_rho = np.zeros(len(altitudes))
     stnd_ox = np.zeros_like(stnd_rho)
 
     hydro_rho0 = np.zeros_like(altitudes2)
 
+    new_rho_a = np.zeros_like(altitudes2)
+    new_rho_o = np.zeros_like(altitudes2)
+
     for i in range(0,len(altitudes)):
         alt = altitudes[i]
         rho_a, rho_o = US1976StandardAtmosphere(alt)
-        rho_o = rho_o/2
 
         stnd_rho[i] = rho_a
         stnd_ox[i] = rho_o
 
     for i in range(len(altitudes2)):
         alt = altitudes2[i]
-        rho_a0 = atmosphericDensity(p_sur, alt, isothermal_temp, 
-                scale_height, m_bar)
+        rho_a0 = atmosphericDensity(alt)
+        rho_a, rho_o = AtmosphericDensityAndOxygen(alt)
+        print("%3d, alt=%3.0f km: rho_a: %2.3e, rho_o: %2.3e"%(i,
+            (alt-earth_rad)/1000,rho_a,rho_o))
 
         hydro_rho0[i] = rho_a0
+        new_rho_o[i] = rho_o
+        new_rho_a[i] = rho_a
 
 
 
@@ -789,8 +1052,11 @@ def compareStandardAndHydrostaticAtmospheres():
     plt.plot(stnd_ox, altitudes,'bo', label="Stnd ox")
     plt.plot(hydro_rho0, altitudes2, 'r', label="Hydrostatic")
 
-    plt.plot(fit_line, altitudes2, ":g", label="Best Fit")
-    plt.plot(fit_line*0.21, altitudes2, ":b", label="Best Fit O2")
+    #plt.plot(fit_line, altitudes2, ":g", label="Best Fit")
+    #plt.plot(2*fit_line*0.233, altitudes2, ":b", label="Best Fit ox")
+
+    plt.plot(new_rho_a, altitudes2, ":g", label="New Rho A")
+    plt.plot(new_rho_o, altitudes2, ":b", label="New Rho O")
 
     plt.gca().set_xscale("log")
     plt.xlabel(r"Atmospheric Density [kg m$^{-3}$]")
@@ -800,7 +1066,8 @@ def compareStandardAndHydrostaticAtmospheres():
     plt.show()
 
 
-def plotParticleParameters(temps, velocities, rads, altitudes, times, stoichs):
+def plotParticleParameters(temps, velocities, rads, altitudes, times, stoichs,
+        fe_fractions):
     """
     Function to plot the various parameters of the simulation.
 
@@ -811,25 +1078,33 @@ def plotParticleParameters(temps, velocities, rads, altitudes, times, stoichs):
         altitudes  - micrometeorite altitude above Earth's center [m]
         times      - times [s]
         stoichs    - O stoichiometry
+        fe_fractions - the Fe core mass fraction
     """
 
-    fig, (ax1,ax2,ax3,ax4,ax5) = plt.subplots(5,1, sharex=True)
+
+    fig, (ax1,ax2,ax3,ax4,ax5,ax6) = plt.subplots(6,1, figsize=(6,10), sharex=True)
 
     ax1.plot(times,temps)
     ax1.set_ylabel("Temp. [K]")
     
+    velocities = np.array(velocities)
     ax2.plot(times,velocities/1000)
     ax2.set_ylabel(r"Vel. [km s$^{-1}$]")
 
+    rads = np.array(rads)
     ax3.plot(times,rads*(1.0E6))
     ax3.set_ylabel(r"Radius [$\mu$m]")
 
-    ax4.plot(times, stoichs)
-    ax4.set_ylabel("O Stoich")
+    ax4.plot(times,fe_fractions)
+    ax4.set_ylabel("Fe Frac")
 
-    ax5.plot(times,(altitudes-earth_rad)/1000)
-    ax5.set_ylabel("Alt. [km]")
-    ax5.set_xlabel("Time [s]")
+    ax5.plot(times, stoichs)
+    ax5.set_ylabel("O Stoich")
+
+    altitudes = np.array(altitudes)
+    ax6.plot(times,(altitudes-earth_rad)/1000)
+    ax6.set_ylabel("Alt. [km]")
+    ax6.set_xlabel("Time [s]")
 
 
     plt.show()
@@ -905,11 +1180,8 @@ def plotMultithreadResultsRadiusVsTheta(param=3, directory="output"):
     Inputs:
         param         - the chosen result to display, the options are:
                             0: final radius [microns]
-                            1: total Fe remaining [kg]
-                            2: total FeO remaining [kg]
+                            1 and 2: remaining Fe fraction
                             3: maximum temperature [K]
-                            4: Fe mass fraction
-                            5: total mass [kg]
     """
     #TODO implement the 5 parameters correctly!
 
@@ -980,7 +1252,7 @@ def plotMultithreadResultsRadiusVsTheta(param=3, directory="output"):
                                 k][2]
                         rad_theta18[k][i] = Fe_mass/(Fe_mass+FeO_mass)
 
-    fig, (ax0,ax1,ax2) = plt.subplots(3,1, sharex=True)
+    fig, (ax0,ax1,ax2) = plt.subplots(3,1, figsize=(11,8), sharex=True)
     levels = np.linspace(0, 500, 31)
     if param == 3:
         levels = [1800,1900,2000,2100,2200,2300,2400,2500,2600,2700,2800,2900,3000]
@@ -993,17 +1265,20 @@ def plotMultithreadResultsRadiusVsTheta(param=3, directory="output"):
     plt.clabel(CS, inline=1, fontsize=10)
     ax0.set_ylabel("Entry Angle")
     ax0.set_title(r"%0.1f [km s$^{-1}$]"%(velocity_vals[0]/1000))
+    ax0.invert_yaxis()
 
     CS1 = ax1.contour(radii/(1.0E-6), thetas*180/pi, rad_theta14, levels)
     plt.clabel(CS1, inline=1, fontsize=10)
     ax1.set_ylabel("Entry Angle")
     ax1.set_title(r"%0.1f [km s$^{-1}$]"%(velocity_vals[1]/1000))
+    ax1.invert_yaxis()
 
     CS2 = ax2.contour(radii/(1.0E-6), thetas*180/pi, rad_theta18, levels)
     plt.clabel(CS2, inline=1, fontsize=10)
     plt.xlabel("Radius [microns]")
     plt.ylabel("Entry Angle")
     ax2.set_title(r"%0.1f [km s$^{-1}$]"%(velocity_vals[2]/1000))
+    ax2.invert_yaxis()
 
 
     plt.show()
@@ -1079,12 +1354,14 @@ def runMultithreadAcrossParams(debug_print=False, output_dir="output"):
             if resp != "y" and resp != "Y":
                 return
 
-        rad_count = 25
-        vel_count = 25
-        the_count = 3
-        radii = np.linspace(5*1.0E-6, 1000*1.0E-6, rad_count)
-        velocities = np.linspace(11200, 30000, vel_count)
-        thetas = np.array([0,45,70])*pi/180 #np.linspace(0*pi/180,80*pi/180, the_count)
+        rad_count = 15
+        vel_count = 3 
+        the_count = 15
+        radii = np.linspace(5*1.0E-6, 500*1.0E-6, rad_count)
+        #velocities = np.linspace(11200, 20000, vel_count)
+        velocities = [12000,14000,18000]
+        thetas = np.linspace(0*pi/180,80*pi/180, the_count)
+        #thetas = np.array([0,45,70])*pi/180 
 
         length = len(radii)*len(velocities)*len(thetas)
 
@@ -1252,7 +1529,7 @@ def plotFractionalFeHistogram(directory="rand_sim_hires"):
             iron_fraction = total_Fe/m_Fe/Fe_mols
             wustite_fraction = 1.0 - iron_fraction
 
-        if final_radius/1.0E-6 > 5 and iron_fraction < 1:
+        if final_radius/1.0E-6 > 25 and iron_fraction < 1 and iron_fraction>0:
             #clip micrometeorites with very small radii, as they aren't 
             #in the data collection
             #clip pure Fe micrometeorites, they didn't melt
@@ -1264,10 +1541,18 @@ def plotFractionalFeHistogram(directory="rand_sim_hires"):
 
             fe_frac_array.append(iron_fraction)
 
+    genge_data = Genge_2017_Fe_Fraction()
+    t_test_result = stats.ttest_ind(genge_data, fe_frac_array, equal_var=False)
+    print(t_test_result)
+
+    p_value = zStatistic(fe_frac_array, genge_data)
+    print("Z-test gives p-value: %0.5f"%(p_value))
+
     mean = np.mean(fe_frac_array)
     std = np.std(fe_frac_array)
     print("Number of samples: %d"%(len(fe_frac_array)))
     print("Mean: %0.4f, Std: %0.4f"%(mean,std))
+    print("Genge mean: %0.4f, Std: %0.4f"%(np.mean(genge_data), np.std(genge_data)))
     print("Total with Fe Core: %d (%d without)"%(has_fe, no_fe))
     plt.hist(fe_frac_array, bins=50, normed=True)
     plt.show()
@@ -1340,7 +1625,8 @@ def plotRandomIronPartition(directory="rand_sim"):
     print("len(partices) = %d"%(len(particle_fractions)))
     print("Tossed %d entries that were pure magnetite"%(tossed_magnetite))
     print("Pure iron mms %d"%(pure_iron_count))
-    print("Has iron: %d, no iron: %d, ratio: %0.2f"%(has_fe, no_fe, float(has_fe/no_fe)))
+    if no_fe > 0:
+        print("Has iron: %d, no iron: %d, ratio: %0.2f"%(has_fe, no_fe, float(has_fe/no_fe)))
 
     num_entries = len(particle_fractions)
     width = 1
@@ -1703,22 +1989,39 @@ def testDist(dist, use_log=False):
 
     plt.show()
 
+def test():
+    pts = [3.71E-05, 1.68E-05, 7.75E-06]
+    alts = [70, 75, 80]
 
+    pt_86 = 1.61E-06
 
+    hydro_alt = 70000
+    hydro_pt = atmosphericDensity(earth_rad + hydro_alt)*0.233
+    print("Pressure at %0d [km] is %2.3e"%(hydro_alt/1000, hydro_pt))
 
-#simulateParticle(500*1.0E-6, 13000, 0*pi/180, debug_print=True)
+    plt.plot(pts, alts, 'bo')
+    plt.plot([pt_86], [86], 'ro')
+    plt.plot([hydro_pt],[hydro_alt/1000], 'ro')
+    plt.plot([pt_86, hydro_pt],[86, hydro_alt/1000],'r')
+    plt.xscale('log')
+    plt.ylim(hydro_alt/1000-5,90)
+    plt.show()
+   
+#test()
+
+simulateParticle(50*1.0E-6, 12000, 45*pi/180, debug_print=True)
 #compareStandardAndHydrostaticAtmospheres()
-#runMultithreadAcrossParams(output_dir="mod_output_1_percent")
+#runMultithreadAcrossParams(output_dir="mod_output_2")
 
-generateRandomSampleData(num_samples=500, output_dir="vary_ox/21_percent_std")
+#generateRandomSampleData(num_samples=500, output_dir="modern_atmosphere_double")
 #plotRandomDataHistogram(directory="rand_sim_hires")
 
 #plotInputParamsForRandomData(directory="rand_sim")
 
-#plotRandomIronPartition(directory="rand_sim")
+#plotRandomIronPartition(directory="modern_atmosphere_double")
 
-#plotFractionalFeHistogram(directory="vary_ox/21_percent_std")
 
+#plotFractionalFeHistogram(directory="modern_atmosphere_double")
 
 
 
@@ -1734,10 +2037,10 @@ generateRandomSampleData(num_samples=500, output_dir="vary_ox/21_percent_std")
 #        directory="mod_output") 
 
 #plot for pure Fe
-#plotParameterSpace([0, 45*pi/180, 70*pi/180], directory="mod_output_1_percent",
+#plotParameterSpace([0, 45*pi/180, 70*pi/180], directory="mod_output",
 #        color = 0) 
 
-#plotMultithreadResultsRadiusVsTheta(param=0)
+#plotMultithreadResultsRadiusVsTheta(param=1, directory="mod_output_2")
 #printSimulationFromFiles()
 
 #testDist(impactAngleDistribution())
