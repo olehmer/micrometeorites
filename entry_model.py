@@ -754,7 +754,7 @@ def zStatAndPlot(directory="rand_sim"):
 
 
     plt.hist(fe_frac_array, bins=50, normed=True, alpha=0.5)
-    plt.hist(genge_data, bins=50, normed=True, alpha=0.5)
+    plt.hist(genge_data, bins=20, normed=True, alpha=0.5)
     plt.errorbar([np.mean(genge_data)], [7.8], xerr=[2*np.std(genge_data)], fmt='-o')
     plt.errorbar([mean], [7.0], xerr=[std], fmt='-o')
     plt.xlabel("Fe Fractional Area")
@@ -874,7 +874,7 @@ def plotRandomIronPartition(directory="rand_sim", use_all=False):
     plt.show()
 
 
-def co2_data_mean(directory="co2_runs"):
+def plot_co2_data_mean(directory="co2_runs"):
     """
     Calculate the mean Fe area for varying co2 levels
     """
@@ -940,9 +940,9 @@ def co2_data_mean(directory="co2_runs"):
 #this function runs a basic, single model run
 #plot_particle_parameters((1/50)*3.665E-9, 12000, 45*pi/180)
 
-co2_data_mean()
+#plot_co2_data_mean()
 #generateRandomSampleData(output_dir="co2_runs/co2_30", num_samples=500)
 #plotRandomIronPartition(directory="co2_runs/co2_18", use_all=True)
-#zStatAndPlot(directory="co2_runs/co2_02")
+zStatAndPlot(directory="rand_sim_hires_gamma0.8")
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
