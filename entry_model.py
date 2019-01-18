@@ -38,7 +38,7 @@ RHO_FE = 7000 #liquid Fe density [kg m-3]
 RHO_FEO = 4400 #liquid FeO density [kg m-3]
 
 GAMMA = 1 #0.8
-CO2_FAC = 0.30 #the CO2 concentration for this model, -1 turns it off and uses O2
+CO2_FAC = 0.29 #the CO2 concentration for this model, -1 turns it off and uses O2
 
 class impactAngleDistribution(stats.rv_continuous):
     """
@@ -423,7 +423,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta):
         #calculate the atmospheric density and total oxygen density
         rho_a, rho_o = atmospheric_density_and_oxygen(alt)
         if CO2_FAC != -1:
-            rho_o = rho_a*CO2_FAC
+            rho_o = rho_a*CO2_FAC*(32/44) #the O2 is 32/44 of the mass of CO2
 
         #calculate the radial and tangential velocity derivatives 
         #we've assumed a flat Earth here
@@ -739,7 +739,7 @@ def zStatAndPlot(directory="rand_sim"):
         rad = results[i][0]
         frac = results[i][1]
 
-        if rad > 25*1.0E-6 and 0 < frac < 1:
+        if rad > 5*1.0E-6 and 0 < frac < 1:
             fe_frac_array.append(frac)
 
     genge_data = Genge_2017_Fe_Fraction()
@@ -748,18 +748,19 @@ def zStatAndPlot(directory="rand_sim"):
     print("Z-test gives p-value: %0.5f"%(p_value))
     mean = np.mean(fe_frac_array)
     std = np.std(fe_frac_array)
-    print("Number of samples: %d"%(len(fe_frac_array)))
+    print("Number of samples used: %d (out of %d)"%(len(fe_frac_array), len(results)))
     print("Mean: %0.4f, Std: %0.4f"%(mean,std))
     print("Genge mean: %0.4f, Std: %0.4f"%(np.mean(genge_data), np.std(genge_data)))
 
 
-    plt.hist(fe_frac_array, bins=50, normed=True, alpha=0.5)
-    plt.hist(genge_data, bins=20, normed=True, alpha=0.5)
-    plt.errorbar([np.mean(genge_data)], [7.8], xerr=[2*np.std(genge_data)], fmt='-o')
-    plt.errorbar([mean], [7.0], xerr=[std], fmt='-o')
+    plt.hist(fe_frac_array, bins=50, normed=True, alpha=0.5, color="#1f77b4")
+    plt.hist(genge_data, bins=20, normed=True, alpha=0.5, color="#ff7f0e")
+    plt.errorbar([np.mean(genge_data)], [7.8], xerr=[2*np.std(genge_data)], 
+            fmt='-o', color="#ff7f0e")
+    plt.errorbar([mean], [7.0], xerr=[std], fmt='-o', color="#1f77b4")
     plt.xlabel("Fe Fractional Area")
     plt.ylabel("Model Counts (blue), Genge Data (orange)")
-    plt.title("Model Mean (red), Genge Mean (green), bars=95%")
+    #plt.title("Model Mean (red), Genge Mean (green), bars=95%")
     plt.gca().set_yticks([])
     plt.show()
 
@@ -868,7 +869,7 @@ def plotRandomIronPartition(directory="rand_sim", use_all=False):
         ax.add_patch(r1)
 
     plt.xlim(0, num_entries)
-    plt.title("Fractional Area of Fe (grey) to FeO (blue)")
+    #plt.title("Fractional Area of Fe (grey) to FeO (blue)")
     plt.ylabel("Fe Fractional Area (Cross Section)")
     plt.xlabel("Model Runs")
     plt.show()
@@ -879,17 +880,17 @@ def plot_co2_data_mean(directory="co2_runs"):
     Calculate the mean Fe area for varying co2 levels
     """
 
-    num_runs = 15
+    num_runs = 35 
     means = np.zeros(num_runs)
     co2_percents = np.zeros(num_runs)
     std_tops = np.zeros(num_runs)
     std_bots = np.zeros(num_runs)
 
+    not_printed = True
+
     for i in range(0,num_runs):
-        val = i*2+2
-        fname =  "/co2_0%d/results.dat"%(val)
-        if val >= 10:
-            fname = "/co2_%d/results.dat"%(val)
+        val = i+1
+        fname = "/co2_%d/results.dat"%(val)
 
         results = readModelDataFile(directory + fname)
 
@@ -905,13 +906,21 @@ def plot_co2_data_mean(directory="co2_runs"):
             if frac == 0:
                 has_pure_ox = True
 
-        if has_pure_ox:
-            print("At %d%% CO2 fully oxidized exists"%(val))
         means[i] = np.mean(particle_fractions)
         std = np.std(particle_fractions)
         std_tops[i] = means[i] + std
         std_bots[i] = means[i] - std
-        co2_percents[i] = val
+        #the CO2 percents in the model were done by mass, convert to volume
+        #here. Assume Pure CO2 and N2 atmosphere
+        vol_frac = 7*(val/100)/(11-4*val/100)
+
+        print("%d wt %% gives %0.2f vol %%"%(val, vol_frac*100))
+        co2_percents[i] = vol_frac*100
+
+        if has_pure_ox and not_printed:
+            print("At %0.2f%% CO2 fully oxidized exists"%(co2_percents[i]))
+            not_printed = False
+
 
     tomkins_data = [0.555, 0.003] #tomkins fractional areas
     t_mean = np.mean(tomkins_data)
@@ -920,15 +929,15 @@ def plot_co2_data_mean(directory="co2_runs"):
     std_tops = np.clip(std_tops, 0, 1)
     std_bots = np.clip(std_bots, 0, 1)
 
-    r0 = Rectangle((18, 0), 12, 1, color="lightblue", alpha=0.5, zorder=1)
+    r0 = Rectangle((15.2, 0), 13, 1, color="lightblue", alpha=0.5, zorder=1)
     plt.gca().add_patch(r0)
     plt.plot(co2_percents, means, zorder=3)
     plt.fill_between(co2_percents, std_tops, std_bots, color="grey", alpha=0.5,
             zorder=2)
-    plt.errorbar([18.4], [t_mean], yerr=[t_std*2], fmt='-o', zorder=4)
-    plt.xlim(2,30)
+    plt.errorbar([18.2], [t_mean], yerr=[t_std*2], fmt='-o', zorder=4)
+    plt.xlim(1, floor(co2_percents[-1]))
     plt.ylim(0,1)
-    plt.xlabel(r"Atmospheric CO${_2}$ [Volume %]")
+    plt.xlabel(r"Atmospheric pCO${_2}$ [Volume %]")
     plt.ylabel("Fe Fraction")
     plt.show()
 
@@ -938,11 +947,12 @@ def plot_co2_data_mean(directory="co2_runs"):
 
 #50 micron radius has mass 3.665E-9 kg
 #this function runs a basic, single model run
-#plot_particle_parameters((1/50)*3.665E-9, 12000, 45*pi/180)
+#plot_particle_parameters(3.665E-9, 12000, 45*pi/180)
 
-#plot_co2_data_mean()
-#generateRandomSampleData(output_dir="co2_runs/co2_30", num_samples=500)
-#plotRandomIronPartition(directory="co2_runs/co2_18", use_all=True)
+#plot_co2_data_mean(directory="co2_data")
+#generateRandomSampleData(output_dir="co2_data/co2_29",
+#        num_samples=1000)
+#plotRandomIronPartition(directory="rand_sim_gamma1", use_all=True)
 zStatAndPlot(directory="rand_sim_hires_gamma0.8")
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
