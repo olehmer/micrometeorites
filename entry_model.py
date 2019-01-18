@@ -15,8 +15,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-#small change
-
 
 #Define constants here
 EARTH_RAD = 6.37E6 #radius of Earth [m]
