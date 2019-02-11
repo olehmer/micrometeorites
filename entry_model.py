@@ -32,6 +32,7 @@ C_SP = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
 #figure 2 in the same paper shows a c_sp of 696 [J K-1 kg-1], so try both?
 FE_MELTING_TEMP = 1809 #temperature at which Fe melts [K]
 FEO_MELTING_TEMP = 1720 #melting temp of Fe) [K]
+DELTA_H_OX = 3716000 #heat of oxidation [J kg-1]
 
 #densities from from the paragraph below equation 10 in Genge et al. (2016)
 RHO_FE = 7000 #liquid Fe density [kg m-3]
@@ -434,21 +435,28 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta):
         dalt_dt = -vel_rad 
 
         #the mass derivative
-        #Genge equation 13, which is in [dynes cm-2], convert to[Pa]
-        p_v = 10**(11.3-2.0126E4/temp)/10
+        #Genge equation 13, which is in [dynes cm-2], converted to [Pa] here
+        p_v = 10**(10.3-20126/temp)
+
+        #genge equation 12 
+        ox_enc = 0
+        if temp > FE_MELTING_TEMP or (mass_feo > 0 and temp > FEO_MELTING_TEMP):
+            #the particle is molten, let oxygen be absorbed
+            ox_enc = GAMMA*rho_o*pi*rad**2*vel
+
         #Genge equation 7, but the Langmuir formula has been adjusted for SI
         #this mass loss rate is in [kg s-1] of FeO
         dm_evap_dt = 0
         if mass_feo > 0 and temp > FEO_MELTING_TEMP:
             dm_evap_dt = 4*pi*rad**2*p_v*sqrt(M_FEO/(2*pi*GAS_CONST*temp))
-        #genge equation 12 
-        ox_enc = 0
-        if temp > FE_MELTING_TEMP or (mass_feo > 0 and temp > FEO_MELTING_TEMP):
-            ox_enc = GAMMA*rho_o*pi*rad**2*vel
+
         dmass_feo_dt = -dm_evap_dt + (M_FEO/M_O)*ox_enc
         dmass_fe_dt = -(M_FE/M_O)*ox_enc
 
-        dq_ox_dt = 3716000*dm_evap_dt #Genge equation 14
+        #TODO dq_ox_dt is in error, it should by dmass_feo_dt, not dm_evap_dt here
+        #right?
+        #dq_ox_dt = DELTA_H_OX*dm_evap_dt #Genge equation 14
+        dq_ox_dt = DELTA_H_OX*(M_FEO/M_O)*ox_enc #Genge equation 14
 
         #equation 6 of Genge (2016). This has the oxidation energy considered
         #which is described by equation 14
@@ -464,7 +472,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta):
                 dtemp_dt]
 
     #collect the initial values for solve_ivp()
-    y_0 = [190000+EARTH_RAD, #initial altitude
+    y_0 = [190000+EARTH_RAD, #initial altitude, 190 [km]
            sin(input_theta)*input_vel, #initial tangential velocity [m s-1]
            cos(input_theta)*input_vel, #initial radial velocity [m s-1]
            input_mass, #initial Fe mass [kg]
@@ -474,7 +482,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta):
     #the time range [s] used by solve_ivp()
     time_range = [0, 25]
 
-    res = solve_ivp(sim_func, time_range, y_0, max_step=0.005)
+    res = solve_ivp(sim_func, time_range, y_0, max_step=0.0005)
 
     return res
 
@@ -680,7 +688,8 @@ def runMultithreadAcrossParams(debug_print=False, output_dir="output"):
 
 def plot_particle_parameters(input_mass, input_vel, input_theta):
     """
-    Function to plot the various parameters of the simulation.
+    Function to plot the various parameters of the simulation. This function
+    was used to generate Figure 1.
     """
 
     res = simulate_particle_ivp(input_mass, input_vel, input_theta)
@@ -695,6 +704,18 @@ def plot_particle_parameters(input_mass, input_vel, input_theta):
     rads = get_radius_and_density(data[3, :], data[4, :], not_array=False)[0]
     temps = data[5, :]
 
+    start_ind = -1
+    end_ind = -1
+    for i in range(0, len(temps)):
+        if start_ind < 0 and temps[i] > FE_MELTING_TEMP:
+            start_ind = i
+        if end_ind < 0 and start_ind > 0 and temps[i] < FEO_MELTING_TEMP:
+            end_ind = i-1
+
+    print("Molten start: %0.1f seconds"%(times[start_ind]))
+    print("Molten end: %0.1f seconds"%(times[end_ind]))
+
+
     rad, frac = get_final_radius_and_fe_area_from_sim(data)
     print("Final radius: %0.1f [microns]"%(rad/(1.0E-6)))
     print("Final Fe area fraction: %0.2f"%(frac))
@@ -706,21 +727,52 @@ def plot_particle_parameters(input_mass, input_vel, input_theta):
     fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, figsize=(6, 8), sharex=True)
 
     ax1.plot(times, temps)
+    ax1.plot(times[start_ind:end_ind], temps[start_ind:end_ind], 
+            color="#ff7f0e")
     ax1.set_ylabel("Temp. [K]")
+    ax1.text(0.025, 0.9, "A", 
+            horizontalalignment='center',
+            verticalalignment='center',
+            transform = ax1.transAxes)
     
     ax2.plot(times, velocities/1000)
+    ax2.plot(times[start_ind:end_ind], velocities[start_ind:end_ind]/1000,
+            color="#ff7f0e")
     ax2.set_ylabel(r"Vel. [km s$^{-1}$]")
+    ax2.text(0.025, 0.9, "B", 
+            horizontalalignment='center',
+            verticalalignment='center',
+            transform = ax2.transAxes)
 
-    rads = np.array(rads)
-    ax3.plot(times, rads*(1.0E6))
+    rads = np.array(rads)*(1.0E6)
+    ax3.plot(times, rads)
+    ax3.plot(times[start_ind:end_ind], rads[start_ind:end_ind], 
+            color="#ff7f0e")
     ax3.set_ylabel(r"Radius [$\mu$m]")
+    ax3.text(0.025, 0.9, "C", 
+            horizontalalignment='center',
+            verticalalignment='center',
+            transform = ax3.transAxes)
 
     ax4.plot(times, fe_fracs)
-    ax4.set_ylabel("Fe Frac")
+    ax4.plot(times[start_ind:end_ind], fe_fracs[start_ind:end_ind],
+            color="#ff7f0e")
+    ax4.set_ylabel("Fe Frac.")
+    ax4.text(0.025, 0.9, "D", 
+            horizontalalignment='center',
+            verticalalignment='center',
+            transform = ax4.transAxes)
 
-    ax5.plot(times, (alts-EARTH_RAD)/1000)
+    alts = (alts-EARTH_RAD)/1000
+    ax5.plot(times, alts)
+    ax5.plot(times[start_ind:end_ind], alts[start_ind:end_ind], 
+            color="#ff7f0e")
     ax5.set_ylabel("Alt. [km]")
     ax5.set_xlabel("Time [s]")
+    ax5.text(0.025, 0.9, "E", 
+            horizontalalignment='center',
+            verticalalignment='center',
+            transform = ax5.transAxes)
 
 
     plt.show()
@@ -946,13 +998,13 @@ def plot_co2_data_mean(directory="co2_runs"):
 
 
 #50 micron radius has mass 3.665E-9 kg
-#this function runs a basic, single model run
-#plot_particle_parameters(3.665E-9, 12000, 45*pi/180)
+#Figure 1: this function runs a basic, single model run
+plot_particle_parameters(3.665E-9, 12000, 45*pi/180)
 
 #plot_co2_data_mean(directory="co2_data")
 #generateRandomSampleData(output_dir="co2_data/co2_29",
 #        num_samples=1000)
 #plotRandomIronPartition(directory="rand_sim_gamma1", use_all=True)
-zStatAndPlot(directory="rand_sim_hires_gamma0.8")
+#zStatAndPlot(directory="rand_sim_hires_gamma0.8")
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
