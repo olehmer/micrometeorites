@@ -6,13 +6,13 @@ Owen Lehmer - 1/14/19
 """
 
 from multiprocessing import Pool, cpu_count
-from math import sin, cos, asin, pi, floor, sqrt
+from math import sin, cos, pi, floor, sqrt
 from scipy.integrate import solve_ivp
 from scipy import stats
 from tqdm import tqdm
 from matplotlib.patches import Rectangle
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 
 
@@ -29,7 +29,6 @@ M_O = 0.016 #molecular weight of O [kg mol-1]
 M_FEO = M_FE + M_O #molecular weight of FeO [kg mol-1]
 L_V = 6.050E6 #latent heat of vaporization for FeO [J kg-1] from Genge
 C_SP = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
-#figure 2 in the same paper shows a c_sp of 696 [J K-1 kg-1], so try both?
 FE_MELTING_TEMP = 1809 #temperature at which Fe melts [K]
 FEO_MELTING_TEMP = 1720 #melting temp of Fe) [K]
 DELTA_H_OX = 3716000 #heat of oxidation [J kg-1]
@@ -39,7 +38,7 @@ RHO_FE = 7000 #liquid Fe density [kg m-3]
 RHO_FEO = 4400 #liquid FeO density [kg m-3]
 
 GAMMA = 1 #0.8
-CO2_FAC = 0.29 #the CO2 concentration for this model, -1 turns it off and uses O2
+CO2_FAC = -1 #the CO2 concentration for this model, -1 turns it off and uses O2
 
 class impactAngleDistribution(stats.rv_continuous):
     """
@@ -56,7 +55,7 @@ class impactAngleDistribution(stats.rv_continuous):
 
     def _pdf(self, x):
         prob = 0
-        if x>0 and x<pi/2:
+        if 0 < x < pi/2:
             #between 0 and 90 degress
             prob = sin(2*x)
         return prob
@@ -89,7 +88,7 @@ class initialVelocityDistribution(stats.rv_continuous):
 
     def _pdf(self, x):
         prob = 0
-        if x>11.2:
+        if x > 11.2:
             prob = 1.791E5*x**-5.394
         return prob
 
@@ -116,8 +115,8 @@ class initialMassDistribution(stats.rv_continuous):
 
     def _pdf(self, x):
         prob = 0
-        if x>3.665E-9 and x<0.02932:
-            prob = ((2.2E3*x**0.306+15)**-4.38 + 1.3E-9*(x + 10**11*x**2 + 
+        if 3.665E-9 < x < 0.02932:
+            prob = ((2.2E3*x**0.306+15)**-4.38 + 1.3E-9*(x + 10**11*x**2 + \
                     10**27*x**4)**-0.36)/4.50936E-13
             prob = float(prob)
         return prob
@@ -176,40 +175,40 @@ def Genge_2017_Fe_Fraction():
 
     #the data from figure 4, truncated to 3 decimal points
     genge_data = [
-            0.921,
-            0.487,
-            0.485,
-            0.437,
-            0.431,
-            0.422,
-            0.413,
-            0.356,
-            0.333,
-            0.319,
-            0.300,
-            0.287,
-            0.276,
-            0.264,
-            0.212,
-            0.211,
-            0.181,
-            0.178,
-            0.171,
-            0.171,
-            0.169,
-            0.127,
-            0.127,
-            0.108,
-            0.155,
-            0.261,
-            0.052,
-            0.393,
-            0.493,
-            0.281,
-            0.390,
-            0.076,
-            0.191,
-            0.020]
+        0.921,
+        0.487,
+        0.485,
+        0.437,
+        0.431,
+        0.422,
+        0.413,
+        0.356,
+        0.333,
+        0.319,
+        0.300,
+        0.287,
+        0.276,
+        0.264,
+        0.212,
+        0.211,
+        0.181,
+        0.178,
+        0.171,
+        0.171,
+        0.169,
+        0.127,
+        0.127,
+        0.108,
+        0.155,
+        0.261,
+        0.052,
+        0.393,
+        0.493,
+        0.281,
+        0.390,
+        0.076,
+        0.191,
+        0.020]
 
 
     return genge_data
@@ -440,23 +439,26 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta):
 
         #genge equation 12 
         ox_enc = 0
-        if temp > FE_MELTING_TEMP or (mass_feo > 0 and temp > FEO_MELTING_TEMP):
+        if temp > FE_MELTING_TEMP: # or (mass_feo > 0 and temp > FEO_MELTING_TEMP):
             #the particle is molten, let oxygen be absorbed
             ox_enc = GAMMA*rho_o*pi*rad**2*vel
 
         #Genge equation 7, but the Langmuir formula has been adjusted for SI
         #this mass loss rate is in [kg s-1] of FeO
         dm_evap_dt = 0
-        if mass_feo > 0 and temp > FEO_MELTING_TEMP:
+        if mass_feo > 0: 
+            #make sure there's some FeO, in practice this is always the case
+            #once the melting point is reached
             dm_evap_dt = 4*pi*rad**2*p_v*sqrt(M_FEO/(2*pi*GAS_CONST*temp))
 
         dmass_feo_dt = -dm_evap_dt + (M_FEO/M_O)*ox_enc
         dmass_fe_dt = -(M_FE/M_O)*ox_enc
-
+        
         #TODO dq_ox_dt is in error, it should by dmass_feo_dt, not dm_evap_dt here
         #right?
         #dq_ox_dt = DELTA_H_OX*dm_evap_dt #Genge equation 14
-        dq_ox_dt = DELTA_H_OX*(M_FEO/M_O)*ox_enc #Genge equation 14
+        #dq_ox_dt = DELTA_H_OX*(M_FEO/M_O)*ox_enc #Genge equation 14
+        dq_ox_dt = DELTA_H_OX*dmass_feo_dt #Genge equation 14
 
         #equation 6 of Genge (2016). This has the oxidation energy considered
         #which is described by equation 14
@@ -481,6 +483,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta):
 
     #the time range [s] used by solve_ivp()
     time_range = [0, 25]
+
 
     res = solve_ivp(sim_func, time_range, y_0, max_step=0.0005)
 
@@ -613,7 +616,7 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim"):
         else:
             print("The directory \""+output_dir+"\" already exists.")
             resp = input("Overwrite files in \""+output_dir+"\"? [y/n]: ")
-            if resp != "y" and resp != "Y":
+            if resp not in ("y", "Y"):
                 return
 
         thetas = impactAngleDistribution().sample(size=num_samples)
@@ -630,19 +633,18 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim"):
 
         with Pool(cpu_count()-1) as p:
             results = list(tqdm(p.imap(multithreadWrapper, args_array), 
-                total=num_samples))
+                                total=num_samples))
 
             saveModelData(args_array, output_dir+"/args_array.dat")
             saveModelData(results, output_dir+"/results.dat")
 
 
-def runMultithreadAcrossParams(debug_print=False, output_dir="output"):
+def runMultithreadAcrossParams(output_dir="output"):
     """
     Run the simulation across the parameter ranges of initial radius, velocity,
     and impact angle (theta).
 
     Inputs:
-        debug_print - set to true to print out model results.
         output_dir  - the directory to which the output file will be saved.
     """
     if __name__ == '__main__':
@@ -652,7 +654,7 @@ def runMultithreadAcrossParams(debug_print=False, output_dir="output"):
         else:
             print("The directory \""+output_dir+"\" already exists.")
             resp = input("Overwrite files in \""+output_dir+"\"? [y/n]: ")
-            if resp != "y" and resp != "Y":
+            if resp not in ("y", "Y"):
                 return
 
         mass_count = 35
@@ -661,8 +663,8 @@ def runMultithreadAcrossParams(debug_print=False, output_dir="output"):
         #masses between 5 and 100 microns [kg]
         masses = np.linspace(3.665E-12, 2.932E-8, mass_count)
         #velocities = np.linspace(11200, 20000, vel_count)
-        velocities = [12000,18000]
-        thetas = np.linspace(0*pi/180,80*pi/180, the_count)
+        velocities = [12000, 18000]
+        thetas = np.linspace(0*pi/180, 80*pi/180, the_count)
         #thetas = np.array([0,45,70])*pi/180 
 
         length = len(masses)*len(velocities)*len(thetas)
@@ -676,7 +678,7 @@ def runMultithreadAcrossParams(debug_print=False, output_dir="output"):
 
         with Pool(cpu_count()-1) as p:
             results = list(tqdm(p.imap(multithreadWrapper, args_array), 
-                total=length))
+                                total=length))
 
             saveModelData(masses, output_dir+"/masses.dat")
             saveModelData(velocities, output_dir+"/velocities.dat")
@@ -698,27 +700,32 @@ def plot_particle_parameters(input_mass, input_vel, input_theta):
 
     alts = data[0, :]
     velocities = (data[1, :]**2 + data[2, :]**2)**0.5
-    data[3, data[3, :]< 0] = 0 #remove small negative values
-    data[4, data[4, :]< 0] = 0 #remove small negative values
+    data[3, data[3, :] < 0] = 0 #remove small negative values
+    data[4, data[4, :] < 0] = 0 #remove small negative values
     fe_fracs = data[3, :]/(data[3, :] + data[4, :])
     rads = get_radius_and_density(data[3, :], data[4, :], not_array=False)[0]
     temps = data[5, :]
 
     start_ind = -1
     end_ind = -1
+    last_ind = -1
     for i in range(0, len(temps)):
         if start_ind < 0 and temps[i] > FE_MELTING_TEMP:
             start_ind = i
         if end_ind < 0 and start_ind > 0 and temps[i] < FEO_MELTING_TEMP:
             end_ind = i-1
+        if temps[i] > FEO_MELTING_TEMP:
+            last_ind = i
 
     print("Molten start: %0.1f seconds"%(times[start_ind]))
     print("Molten end: %0.1f seconds"%(times[end_ind]))
 
 
     rad, frac = get_final_radius_and_fe_area_from_sim(data)
+    mass_frac = fe_fracs[-1]
     print("Final radius: %0.1f [microns]"%(rad/(1.0E-6)))
     print("Final Fe area fraction: %0.2f"%(frac))
+    print("Final Fe mass fraction: %0.2f"%(mass_frac))
     ind = np.argmax(temps)
     print("Max temp: %0.0f [K]"%(temps[ind]))
     print("Altitude of max temp: %0.1f [km]"%((alts[ind]-EARTH_RAD)/1000))
@@ -728,51 +735,66 @@ def plot_particle_parameters(input_mass, input_vel, input_theta):
 
     ax1.plot(times, temps)
     ax1.plot(times[start_ind:end_ind], temps[start_ind:end_ind], 
-            color="#ff7f0e")
+             color="#ff7f0e")
+    if last_ind - end_ind > 0:
+        ax1.plot(times[end_ind:last_ind], temps[end_ind:last_ind], 
+                 color="red")
     ax1.set_ylabel("Temp. [K]")
     ax1.text(0.025, 0.9, "A", 
-            horizontalalignment='center',
-            verticalalignment='center',
-            transform = ax1.transAxes)
+             horizontalalignment='center',
+             verticalalignment='center',
+             transform = ax1.transAxes)
     
     ax2.plot(times, velocities/1000)
     ax2.plot(times[start_ind:end_ind], velocities[start_ind:end_ind]/1000,
-            color="#ff7f0e")
+             color="#ff7f0e")
+    if last_ind - end_ind > 0:
+        ax2.plot(times[end_ind:last_ind], velocities[end_ind:last_ind]/1000,
+                 color="red")
     ax2.set_ylabel(r"Vel. [km s$^{-1}$]")
     ax2.text(0.025, 0.9, "B", 
-            horizontalalignment='center',
-            verticalalignment='center',
-            transform = ax2.transAxes)
+             horizontalalignment='center',
+             verticalalignment='center',
+             transform=ax2.transAxes)
 
     rads = np.array(rads)*(1.0E6)
     ax3.plot(times, rads)
     ax3.plot(times[start_ind:end_ind], rads[start_ind:end_ind], 
-            color="#ff7f0e")
+             color="#ff7f0e")
+    if last_ind - end_ind > 0:
+        ax3.plot(times[end_ind:last_ind], rads[end_ind:last_ind], 
+                 color="red")
     ax3.set_ylabel(r"Radius [$\mu$m]")
     ax3.text(0.025, 0.9, "C", 
-            horizontalalignment='center',
-            verticalalignment='center',
-            transform = ax3.transAxes)
+             horizontalalignment='center',
+             verticalalignment='center',
+             transform=ax3.transAxes)
 
     ax4.plot(times, fe_fracs)
     ax4.plot(times[start_ind:end_ind], fe_fracs[start_ind:end_ind],
-            color="#ff7f0e")
+             color="#ff7f0e")
+    if last_ind - end_ind > 0:
+        ax4.plot(times[end_ind:last_ind], fe_fracs[end_ind:last_ind], 
+                 color="red")
     ax4.set_ylabel("Fe Frac.")
     ax4.text(0.025, 0.9, "D", 
-            horizontalalignment='center',
-            verticalalignment='center',
-            transform = ax4.transAxes)
+             horizontalalignment='center',
+             verticalalignment='center',
+             transform=ax4.transAxes)
 
     alts = (alts-EARTH_RAD)/1000
     ax5.plot(times, alts)
     ax5.plot(times[start_ind:end_ind], alts[start_ind:end_ind], 
-            color="#ff7f0e")
+             color="#ff7f0e")
+    if last_ind - end_ind > 0:
+        ax5.plot(times[end_ind:last_ind], alts[end_ind:last_ind], 
+                 color="red")
     ax5.set_ylabel("Alt. [km]")
     ax5.set_xlabel("Time [s]")
     ax5.text(0.025, 0.9, "E", 
-            horizontalalignment='center',
-            verticalalignment='center',
-            transform = ax5.transAxes)
+             horizontalalignment='center',
+             verticalalignment='center',
+             transform=ax5.transAxes)
 
 
     plt.show()
@@ -801,14 +823,14 @@ def zStatAndPlot(directory="rand_sim"):
     mean = np.mean(fe_frac_array)
     std = np.std(fe_frac_array)
     print("Number of samples used: %d (out of %d)"%(len(fe_frac_array), len(results)))
-    print("Mean: %0.4f, Std: %0.4f"%(mean,std))
+    print("Mean: %0.4f, Std: %0.4f"%(mean, std))
     print("Genge mean: %0.4f, Std: %0.4f"%(np.mean(genge_data), np.std(genge_data)))
 
 
     plt.hist(fe_frac_array, bins=50, normed=True, alpha=0.5, color="#1f77b4")
     plt.hist(genge_data, bins=20, normed=True, alpha=0.5, color="#ff7f0e")
     plt.errorbar([np.mean(genge_data)], [7.8], xerr=[2*np.std(genge_data)], 
-            fmt='-o', color="#ff7f0e")
+                 fmt='-o', color="#ff7f0e")
     plt.errorbar([mean], [7.0], xerr=[std], fmt='-o', color="#1f77b4")
     plt.xlabel("Fe Fractional Area")
     plt.ylabel("Model Counts (blue), Genge Data (orange)")
@@ -850,12 +872,12 @@ def plotMultithreadResultsRadiusVsTheta(directory="output"):
         for j in range(0, len(velocities)): #just 2 velocities
             for k in range(0, len(thetas)):
                 if velocities[j] == velocity_vals[0]:
-                        rad_theta12[k][i] = results[i*vel_len*the_len + 
-                                j*the_len + k][1] 
+                    rad_theta12[k][i] = results[i*vel_len*the_len + \
+                            j*the_len + k][1] 
                     
                 if velocities[j] == velocity_vals[1]:
-                        rad_theta18[k][i] = results[i*vel_len*the_len + 
-                                j*the_len + k][1] 
+                    rad_theta18[k][i] = results[i*vel_len*the_len + \
+                            j*the_len + k][1] 
 
 
 #    fig, (ax0,ax1) = plt.subplots(1,2, figsize=(8,6))
@@ -863,7 +885,7 @@ def plotMultithreadResultsRadiusVsTheta(directory="output"):
     plt.xlabel("Initial Radius [micron]")
     plt.ylabel("Entry Angle [degrees]")
     plt.imshow(rad_theta18, origin="lower", cmap="cool", extent=[5, 100, 80, 0],
-            interpolation="none", aspect="auto")
+               interpolation="none", aspect="auto")
     plt.colorbar()
     plt.title("12 km/s")
 
@@ -940,7 +962,7 @@ def plot_co2_data_mean(directory="co2_runs"):
 
     not_printed = True
 
-    for i in range(0,num_runs):
+    for i in range(0, num_runs):
         val = i+1
         fname = "/co2_%d/results.dat"%(val)
 
@@ -985,10 +1007,10 @@ def plot_co2_data_mean(directory="co2_runs"):
     plt.gca().add_patch(r0)
     plt.plot(co2_percents, means, zorder=3)
     plt.fill_between(co2_percents, std_tops, std_bots, color="grey", alpha=0.5,
-            zorder=2)
+                     zorder=2)
     plt.errorbar([18.2], [t_mean], yerr=[t_std*2], fmt='-o', zorder=4)
     plt.xlim(1, floor(co2_percents[-1]))
-    plt.ylim(0,1)
+    plt.ylim(0, 1)
     plt.xlabel(r"Atmospheric pCO${_2}$ [Volume %]")
     plt.ylabel("Fe Fraction")
     plt.show()
