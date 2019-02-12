@@ -1,0 +1,294 @@
+-------------------------------------------
+Passed with inputs:
+Mass: 4.358e-12 kg
+Radius: 5.3 microns
+Velocity: 15079.11 km s-1
+Theta: 59.1
+-------------------------------------------
+Passed with inputs:
+Mass: 1.550e-09 kg
+Radius: 43.7 microns
+Velocity: 11400.00 km s-1
+Theta: 34.8
+-------------------------------------------
+Passed with inputs:
+Mass: 1.571e-08 kg
+Radius: 72.0 microns
+Velocity: 16998.03 km s-1
+Theta: 73.8
+-------------------------------------------
+Passed with inputs:
+Mass: 1.779e-10 kg
+Radius: 20.4 microns
+Velocity: 14192.46 km s-1
+Theta: 39.6
+-------------------------------------------
+Passed with inputs:
+Mass: 1.877e-09 kg
+Radius: 46.4 microns
+Velocity: 11637.75 km s-1
+Theta: 46.1
+-------------------------------------------
+Passed with inputs:
+Mass: 5.064e-10 kg
+Radius: 24.7 microns
+Velocity: 16960.39 km s-1
+Theta: 61.3
+-------------------------------------------
+Passed with inputs:
+Mass: 3.878e-09 kg
+Radius: 55.9 microns
+Velocity: 11316.53 km s-1
+Theta: 30.1
+-------------------------------------------
+Passed with inputs:
+Mass: 1.309e-09 kg
+Radius: 35.5 microns
+Velocity: 14033.91 km s-1
+Theta: 85.2
+-------------------------------------------
+Passed with inputs:
+Mass: 3.385e-09 kg
+Radius: 38.9 microns
+Velocity: 25000.00 km s-1
+Theta: 80.0
+-------------------------------------------
+Passed with inputs:
+Mass: 5.062e-08 kg
+Radius: 111.2 microns
+Velocity: 12386.39 km s-1
+Theta: 47.7
+-------------------------------------------
+Passed with inputs:
+Mass: 1.376e-09 kg
+Radius: 34.6 microns
+Velocity: 14163.18 km s-1
+Theta: 29.4
+-------------------------------------------
+Failed with inputs:
+Mass: 5.774e-08 kg
+Radius: 125.3 microns
+Velocity: 17204.30 km s-1
+Theta: 39.0
+-------------------------------------------
+Passed with inputs:
+Mass: 1.399e-10 kg
+Radius: 18.8 microns
+Velocity: 11541.42 km s-1
+Theta: 51.4
+-------------------------------------------
+Passed with inputs:
+Mass: 6.839e-10 kg
+Radius: 28.6 microns
+Velocity: 11994.16 km s-1
+Theta: 80.5
+-------------------------------------------
+Passed with inputs:
+Mass: 4.948e-11 kg
+Radius: 12.9 microns
+Velocity: 11875.94 km s-1
+Theta: 41.6
+-------------------------------------------
+Passed with inputs:
+Mass: 8.958e-09 kg
+Radius: 65.1 microns
+Velocity: 12357.32 km s-1
+Theta: 34.7
+-------------------------------------------
+Passed with inputs:
+Mass: 3.348e-09 kg
+Radius: 47.1 microns
+Velocity: 16597.77 km s-1
+Theta: 72.7
+-------------------------------------------
+Passed with inputs:
+Mass: 4.179e-09 kg
+Radius: 51.2 microns
+Velocity: 12680.47 km s-1
+Theta: 43.6
+-------------------------------------------
+Passed with inputs:
+Mass: 3.638e-11 kg
+Radius: 12.0 microns
+Velocity: 13129.01 km s-1
+Theta: 13.9
+-------------------------------------------
+Passed with inputs:
+Mass: 3.315e-07 kg
+Radius: 201.4 microns
+Velocity: 12412.36 km s-1
+Theta: 52.3
+-------------------------------------------
+Passed with inputs:
+Mass: 5.528e-11 kg
+Radius: 14.1 microns
+Velocity: 15614.80 km s-1
+Theta: 45.7
+-------------------------------------------
+Failed with inputs:
+Mass: 1.353e-05 kg
+Radius: 772.7 microns
+Velocity: 17377.61 km s-1
+Theta: 73.8
+-------------------------------------------
+Failed with inputs:
+Mass: 2.418e-07 kg
+Radius: 202.0 microns
+Velocity: 18773.26 km s-1
+Theta: 38.7
+-------------------------------------------
+Passed with inputs:
+Mass: 1.636e-11 kg
+Radius: 8.2 microns
+Velocity: 12295.75 km s-1
+Theta: 77.5
+-------------------------------------------
+Passed with inputs:
+Mass: 1.518e-08 kg
+Radius: 80.3 microns
+Velocity: 13493.22 km s-1
+Theta: 74.4
+-------------------------------------------
+Passed with inputs:
+Mass: 4.042e-08 kg
+Radius: 105.0 microns
+Velocity: 11934.05 km s-1
+Theta: 31.9
+-------------------------------------------
+Passed with inputs:
+Mass: 1.166e-06 kg
+Radius: 305.5 microns
+Velocity: 11713.40 km s-1
+Theta: 50.1
+-------------------------------------------
+Failed with inputs:
+Mass: 3.977e-06 kg
+Radius: 513.8 microns
+Velocity: 12771.51 km s-1
+Theta: 37.3
+-------------------------------------------
+Passed with inputs:
+Mass: 1.103e-10 kg
+Radius: 16.1 microns
+Velocity: 15419.97 km s-1
+Theta: 36.0
+-------------------------------------------
+Passed with inputs:
+Mass: 3.410e-08 kg
+Radius: 106.0 microns
+Velocity: 11361.65 km s-1
+Theta: 58.9
+-------------------------------------------
+Passed with inputs:
+Mass: 1.674e-08 kg
+Radius: 75.5 microns
+Velocity: 14134.75 km s-1
+Theta: 23.7
+-------------------------------------------
+Passed with inputs:
+Mass: 5.801e-08 kg
+Radius: 114.2 microns
+Velocity: 12753.97 km s-1
+Theta: 34.2
+-------------------------------------------
+Failed with inputs:
+Mass: 1.048e-06 kg
+Radius: 329.4 microns
+Velocity: 13229.80 km s-1
+Theta: 32.7
+-------------------------------------------
+Passed with inputs:
+Mass: 3.522e-11 kg
+Radius: 12.3 microns
+Velocity: 13446.35 km s-1
+Theta: 30.1
+-------------------------------------------
+Passed with inputs:
+Mass: 2.418e-09 kg
+Radius: 49.4 microns
+Velocity: 12226.27 km s-1
+Theta: 54.9
+-------------------------------------------
+Passed with inputs:
+Mass: 4.007e-10 kg
+Radius: 27.9 microns
+Velocity: 15821.17 km s-1
+Theta: 72.0
+-------------------------------------------
+Passed with inputs:
+Mass: 1.338e-09 kg
+Radius: 35.7 microns
+Velocity: 12493.04 km s-1
+Theta: 83.0
+-------------------------------------------
+Passed with inputs:
+Mass: 1.089e-10 kg
+Radius: 14.4 microns
+Velocity: 18245.10 km s-1
+Theta: 48.9
+-------------------------------------------
+Passed with inputs:
+Mass: 3.584e-08 kg
+Radius: 92.6 microns
+Velocity: 15080.75 km s-1
+Theta: 50.0
+-------------------------------------------
+Passed with inputs:
+Mass: 1.898e-07 kg
+Radius: 160.0 microns
+Velocity: 13977.86 km s-1
+Theta: 38.2
+-------------------------------------------
+Passed with inputs:
+Mass: 9.664e-09 kg
+Radius: 62.6 microns
+Velocity: 14547.56 km s-1
+Theta: 26.5
+-------------------------------------------
+Failed with inputs:
+Mass: 2.639e-08 kg
+Radius: 96.6 microns
+Velocity: 16937.44 km s-1
+Theta: 32.0
+-------------------------------------------
+Failed with inputs:
+Mass: 4.084e-06 kg
+Radius: 518.4 microns
+Velocity: 15257.63 km s-1
+Theta: 32.1
+-------------------------------------------
+Passed with inputs:
+Mass: 1.233e-05 kg
+Radius: 651.2 microns
+Velocity: 11523.99 km s-1
+Theta: 43.6
+-------------------------------------------
+Failed with inputs:
+Mass: 5.992e-06 kg
+Radius: 589.0 microns
+Velocity: 14209.80 km s-1
+Theta: 2.7
+-------------------------------------------
+Failed with inputs:
+Mass: 3.983e-08 kg
+Radius: 110.7 microns
+Velocity: 23095.20 km s-1
+Theta: 32.6
+-------------------------------------------
+Passed with inputs:
+Mass: 5.191e-10 kg
+Radius: 30.4 microns
+Velocity: 12347.78 km s-1
+Theta: 37.6
+-------------------------------------------
+Passed with inputs:
+Mass: 1.400e-08 kg
+Radius: 78.6 microns
+Velocity: 11336.59 km s-1
+Theta: 47.3
+-------------------------------------------
+Passed with inputs:
+Mass: 2.622e-05 kg
+Radius: 837.1 microns
+Velocity: 11570.72 km s-1
+Theta: 57.2

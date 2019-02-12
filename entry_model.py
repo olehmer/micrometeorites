@@ -14,6 +14,7 @@ from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import sys
 
 
 #Define constants here
@@ -37,7 +38,7 @@ DELTA_H_OX = 3716000 #heat of oxidation [J kg-1]
 RHO_FE = 7000 #liquid Fe density [kg m-3]
 RHO_FEO = 4400 #liquid FeO density [kg m-3]
 
-GAMMA = 1 #0.8
+GAMMA = 1.0
 CO2_FAC = -1 #the CO2 concentration for this model, -1 turns it off and uses O2
 
 class impactAngleDistribution(stats.rv_continuous):
@@ -63,7 +64,6 @@ class impactAngleDistribution(stats.rv_continuous):
     def sample(self, size=1, random_state=None):
         return self.rvs(size=size, random_state=random_state)
 
-
 class initialVelocityDistribution(stats.rv_continuous):
     """
     The probability distribution of initial velocity. This class will generate
@@ -83,7 +83,7 @@ class initialVelocityDistribution(stats.rv_continuous):
         """
         Set the lower limit to 11.2 [km s-1] and the upper to 72 [km s-1]
         """
-        super().__init__(a=11.2, b=25)
+        super().__init__(a=11.2, b=25) #upper limit set to 25 km s-1
 
 
     def _pdf(self, x):
@@ -373,15 +373,17 @@ def get_radius_and_density(m_fe, m_feo, not_array=True):
 
 
 
-def simulate_particle_ivp(input_mass, input_vel, input_theta):
+def simulate_particle_ivp(input_mass, input_vel, input_theta, 
+        max_time_step=0.0005):
     """
     Top level function to simulate a micrometeorite using the solve_ivp function
     from scipy.
 
     Inputs:
-        input_mass  - the initial mass of the micrometeorite [kg]
-        input_vel   - the initial entry velocity of the micrometeorite [m s-1]
-        input_theta - initial entry angle of the micrometeorite [radians]
+        input_mass    - the initial mass of the micrometeorite [kg]
+        input_vel     - the initial entry velocity of the micrometeorite [m s-1]
+        input_theta   - initial entry angle of the micrometeorite [radians]
+        max_time_step - the maximum time step to use in the simulation [s]
 
     Returns:
         res - the output from solve_ivp()
@@ -439,7 +441,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta):
 
         #genge equation 12 
         ox_enc = 0
-        if temp > FE_MELTING_TEMP: # or (mass_feo > 0 and temp > FEO_MELTING_TEMP):
+        if temp > FE_MELTING_TEMP or (mass_feo > 0 and temp > FEO_MELTING_TEMP):
             #the particle is molten, let oxygen be absorbed
             ox_enc = GAMMA*rho_o*pi*rad**2*vel
 
@@ -457,8 +459,8 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta):
         #TODO dq_ox_dt is in error, it should by dmass_feo_dt, not dm_evap_dt here
         #right?
         #dq_ox_dt = DELTA_H_OX*dm_evap_dt #Genge equation 14
-        #dq_ox_dt = DELTA_H_OX*(M_FEO/M_O)*ox_enc #Genge equation 14
-        dq_ox_dt = DELTA_H_OX*dmass_feo_dt #Genge equation 14
+        dq_ox_dt = DELTA_H_OX*(M_FEO/M_O)*ox_enc #Genge equation 14
+        #dq_ox_dt = DELTA_H_OX*dmass_feo_dt #Genge equation 14
 
         #equation 6 of Genge (2016). This has the oxidation energy considered
         #which is described by equation 14
@@ -567,7 +569,7 @@ def saveModelData(data, filename):
     file_obj = open(filename, "w")
     for d in data:
         line = ""
-        if isinstance(d, tuple):
+        if isinstance(d, tuple) or isinstance(d, np.ndarray):
             for item in d:
                 line += "%2.10e "%item
         else:
@@ -590,11 +592,44 @@ def multithreadWrapper(args):
     """
 
     mass, velocity, theta = args
-    res = simulate_particle_ivp(mass, velocity, theta)
-    data = res.y
-    final_radius, fe_area = get_final_radius_and_fe_area_from_sim(data)
+    
+    tries = -1 #track the number of attempts
+    MAX_TRIES = 4 #the orders of magnitude to reduce by overall, in increments
+                  #of 1
+    initial_max_step = 0.01 #the initial time step to use [s]
+    result = (0, 0)
 
-    result = (final_radius, fe_area)
+    while tries < MAX_TRIES: 
+        tries += 1
+        try:
+            res = simulate_particle_ivp(mass, velocity, theta, 
+                    max_time_step=initial_max_step*10**(-tries))
+            data = res.y
+            final_radius, fe_area = get_final_radius_and_fe_area_from_sim(data)
+
+            result = (final_radius, fe_area)
+        except ValueError:
+            pass
+        else:
+            tries = MAX_TRIES + 1
+
+#    print("-------------------------------------------")
+#    if tries == MAX_TRIES + 1:
+#        print("Passed with inputs:")
+#    else:
+#        rad = get_radius_and_density(mass, 0)[0]
+#        result = (rad, 1)
+#        print("Failed with inputs:")
+#
+#    print("Mass: %2.3e kg"%(mass))
+#    print("Radius: %0.1f microns"%(result[0]/(1.0E-6)))
+#    print("Velocity: %0.2f km s-1"%(velocity))
+#    print("Theta: %0.1f"%(theta*180/pi))
+
+    if tries != MAX_TRIES + 1:
+        #this run didn't converge, return negative values
+        result = ( -1, -1)
+
 
     return result
 
@@ -614,8 +649,9 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim"):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         else:
-            print("The directory \""+output_dir+"\" already exists.")
-            resp = input("Overwrite files in \""+output_dir+"\"? [y/n]: ")
+            sys.stderr.write("The directory \""+output_dir+"\" already exists.\n")
+            sys.stderr.write("Overwrite files in \""+output_dir+"\"? [y/n]: ")
+            resp = input()
             if resp not in ("y", "Y"):
                 return
 
@@ -637,6 +673,15 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim"):
 
             saveModelData(args_array, output_dir+"/args_array.dat")
             saveModelData(results, output_dir+"/results.dat")
+
+            #delete runs with -1 in them, these failed to converge
+            results = np.array(results)
+            args_array = np.array(args_array)
+            bad_val_inds = np.argwhere(results < 0)
+            results = np.delete(results, bad_val_inds[:, 0], 0)
+            args_array = np.delete(args_array, bad_val_inds[:, 0], 0)
+            saveModelData(args_array, output_dir+"/clean_args_array.dat")
+            saveModelData(results, output_dir+"/clean_results.dat")
 
 
 def runMultithreadAcrossParams(output_dir="output"):
@@ -743,7 +788,7 @@ def plot_particle_parameters(input_mass, input_vel, input_theta):
     ax1.text(0.025, 0.9, "A", 
              horizontalalignment='center',
              verticalalignment='center',
-             transform = ax1.transAxes)
+             transform=ax1.transAxes)
     
     ax2.plot(times, velocities/1000)
     ax2.plot(times[start_ind:end_ind], velocities[start_ind:end_ind]/1000,
@@ -805,7 +850,7 @@ def zStatAndPlot(directory="rand_sim"):
     Calculate the z-statistic and plot fe area histogram
     """
 
-    results = readModelDataFile(directory+"/results.dat")
+    results = readModelDataFile(directory+"/clean_results.dat")
 
     fe_frac_array = []
 
@@ -827,7 +872,7 @@ def zStatAndPlot(directory="rand_sim"):
     print("Genge mean: %0.4f, Std: %0.4f"%(np.mean(genge_data), np.std(genge_data)))
 
 
-    plt.hist(fe_frac_array, bins=50, normed=True, alpha=0.5, color="#1f77b4")
+    plt.hist(fe_frac_array, bins=20, normed=True, alpha=0.5, color="#1f77b4")
     plt.hist(genge_data, bins=20, normed=True, alpha=0.5, color="#ff7f0e")
     plt.errorbar([np.mean(genge_data)], [7.8], xerr=[2*np.std(genge_data)], 
                  fmt='-o', color="#ff7f0e")
@@ -918,7 +963,7 @@ def plotRandomIronPartition(directory="rand_sim", use_all=False):
         directory - the directory to find the data in
     """
 
-    results = readModelDataFile(directory+"/results.dat")
+    results = readModelDataFile(directory+"/clean_results.dat")
 
     particle_fractions = []
 
@@ -1021,12 +1066,12 @@ def plot_co2_data_mean(directory="co2_runs"):
 
 #50 micron radius has mass 3.665E-9 kg
 #Figure 1: this function runs a basic, single model run
-plot_particle_parameters(3.665E-9, 12000, 45*pi/180)
+#plot_particle_parameters(3.665E-9, 13200, 45*pi/180)
 
 #plot_co2_data_mean(directory="co2_data")
-#generateRandomSampleData(output_dir="co2_data/co2_29",
-#        num_samples=1000)
-#plotRandomIronPartition(directory="rand_sim_gamma1", use_all=True)
-#zStatAndPlot(directory="rand_sim_hires_gamma0.8")
+#generateRandomSampleData(output_dir="rand_sim_hires_gamma0.9",
+#        num_samples=500)
+#plotRandomIronPartition(directory="rand_sim_hires_gamma1.0", use_all=True)
+zStatAndPlot(directory="rand_sim_hires_gamma0.9")
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
