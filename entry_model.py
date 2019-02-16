@@ -32,14 +32,19 @@ L_V = 6.050E6 #latent heat of vaporization for FeO [J kg-1] from Genge
 C_SP = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
 FE_MELTING_TEMP = 1809 #temperature at which Fe melts [K]
 FEO_MELTING_TEMP = 1720 #melting temp of Fe) [K]
-DELTA_H_OX = 3716000 #heat of oxidation [J kg-1]
 
 #densities from from the paragraph below equation 10 in Genge et al. (2016)
 RHO_FE = 7000 #liquid Fe density [kg m-3]
 RHO_FEO = 4400 #liquid FeO density [kg m-3]
 
-GAMMA = 1.0
+GAMMA = 0.9
 CO2_FAC = -1 #the CO2 concentration for this model, -1 turns it off and uses O2
+
+#oxidation via CO2 is endothermic so DELTA_H_OX is negative
+DELTA_H_OX = -465000 #heat of oxidation for CO2 + Fe -> CO +FeO [J kg-1]
+if CO2_FAC == -1:
+    #oxidation via oxygen is exothermic
+    DELTA_H_OX = 3716000 #heat of oxidation [J kg-1] from Genge
 
 class impactAngleDistribution(stats.rv_continuous):
     """
@@ -57,7 +62,7 @@ class impactAngleDistribution(stats.rv_continuous):
     def _pdf(self, x):
         prob = 0
         if 0 < x < pi/2:
-            #between 0 and 90 degress
+            #between 0 and 90 degrees
             prob = sin(2*x)
         return prob
 
@@ -425,7 +430,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
         #calculate the atmospheric density and total oxygen density
         rho_a, rho_o = atmospheric_density_and_oxygen(alt)
         if CO2_FAC != -1:
-            rho_o = rho_a*CO2_FAC*(32/44) #the O2 is 32/44 of the mass of CO2
+            rho_o = rho_a*CO2_FAC*(16/44) #the O is 16/44 of the mass of CO2
 
         #calculate the radial and tangential velocity derivatives 
         #we've assumed a flat Earth here
@@ -487,7 +492,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
     time_range = [0, 25]
 
 
-    res = solve_ivp(sim_func, time_range, y_0, max_step=0.0005)
+    res = solve_ivp(sim_func, time_range, y_0, max_step=max_time_step)
 
     return res
 
@@ -1056,7 +1061,7 @@ def plot_co2_data_mean(directory="co2_runs"):
     plt.errorbar([18.2], [t_mean], yerr=[t_std*2], fmt='-o', zorder=4)
     plt.xlim(1, floor(co2_percents[-1]))
     plt.ylim(0, 1)
-    plt.xlabel(r"Atmospheric pCO${_2}$ [Volume %]")
+    plt.xlabel(r"Atmospheric CO${_2}$ [Volume %]")
     plt.ylabel("Fe Fraction")
     plt.show()
 
@@ -1069,9 +1074,9 @@ def plot_co2_data_mean(directory="co2_runs"):
 #plot_particle_parameters(3.665E-9, 13200, 45*pi/180)
 
 #plot_co2_data_mean(directory="co2_data")
-#generateRandomSampleData(output_dir="rand_sim_hires_gamma0.9",
+#generateRandomSampleData(output_dir="new_model_oxygen_gamma09",
 #        num_samples=500)
 #plotRandomIronPartition(directory="rand_sim_hires_gamma1.0", use_all=True)
-zStatAndPlot(directory="rand_sim_hires_gamma0.9")
+zStatAndPlot(directory="new_model_oxygen_gamma09")
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
