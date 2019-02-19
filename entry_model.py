@@ -6,7 +6,7 @@ Owen Lehmer - 1/14/19
 """
 
 from multiprocessing import Pool, cpu_count
-from math import sin, cos, pi, floor, sqrt
+from math import sin, cos, pi, floor, ceil, sqrt
 from scipy.integrate import solve_ivp
 from scipy import stats
 from tqdm import tqdm
@@ -1005,23 +1005,25 @@ def plot_co2_data_mean(directory="co2_runs"):
     Calculate the mean Fe area for varying co2 levels
     """
 
-    num_runs = 35 
+    num_runs =25
     means = np.zeros(num_runs)
     co2_percents = np.zeros(num_runs)
     std_tops = np.zeros(num_runs)
     std_bots = np.zeros(num_runs)
 
     not_printed = True
+    pure_ox_val = 100
 
     for i in range(0, num_runs):
-        val = i+1
-        fname = "/co2_%d/results.dat"%(val)
+        val = (i+1)*3
+        fname = "/co2_%d/clean_results.dat"%(val)
 
         results = readModelDataFile(directory + fname)
 
         particle_fractions = []
 
         has_pure_ox = False
+
 
         for j in range(len(results)):
             frac = results[j][1]
@@ -1045,22 +1047,37 @@ def plot_co2_data_mean(directory="co2_runs"):
         if has_pure_ox and not_printed:
             print("At %0.2f%% CO2 fully oxidized exists"%(co2_percents[i]))
             not_printed = False
+            pure_ox_val = co2_percents[i]
 
 
     tomkins_data = [0.555, 0.003] #tomkins fractional areas
     t_mean = np.mean(tomkins_data)
     t_std = np.std(tomkins_data)
+    mean_ind = np.argmin(np.abs(means - t_mean))
+
+    ind_dir = -1
+    if t_mean < means[mean_ind]:
+        #linearly interpolate to next point
+        ind_dir = 1
+    gap = abs(means[mean_ind] - means[mean_ind + ind_dir])
+    val = abs(t_mean - means[mean_ind])
+    print(gap)
+    print(val)
+    cur_frac = val/gap
+    t_co2_val = cur_frac*co2_percents[mean_ind] + \
+            (1-cur_frac)*co2_percents[mean_ind + ind_dir]
 
     std_tops = np.clip(std_tops, 0, 1)
     std_bots = np.clip(std_bots, 0, 1)
 
-    r0 = Rectangle((15.2, 0), 13, 1, color="lightblue", alpha=0.5, zorder=1)
+    r0 = Rectangle((pure_ox_val, 0), co2_percents[-1]-pure_ox_val, 1, 
+            color="lightblue", alpha=0.5, zorder=1)
     plt.gca().add_patch(r0)
     plt.plot(co2_percents, means, zorder=3)
     plt.fill_between(co2_percents, std_tops, std_bots, color="grey", alpha=0.5,
                      zorder=2)
-    plt.errorbar([18.2], [t_mean], yerr=[t_std*2], fmt='-o', zorder=4)
-    plt.xlim(1, floor(co2_percents[-1]))
+    plt.errorbar([t_co2_val], [t_mean], yerr=[t_std*2], fmt='-o', zorder=4)
+    plt.xlim(ceil(co2_percents[0]), floor(co2_percents[-1]))
     plt.ylim(0, 1)
     plt.xlabel(r"Atmospheric CO${_2}$ [Volume %]")
     plt.ylabel("Fe Fraction")
@@ -1074,10 +1091,10 @@ def plot_co2_data_mean(directory="co2_runs"):
 #Figure 1: this function runs a basic, single model run
 #plot_particle_parameters(3.665E-9, 13200, 45*pi/180)
 
-#plot_co2_data_mean(directory="co2_data")
-generateRandomSampleData(output_dir="co2_data_correct_hox/co2_%0.0f"%(
-                         float(sys.argv[1])*100),
-                         num_samples=100)
+plot_co2_data_mean(directory="co2_data_correct_hox")
+#generateRandomSampleData(output_dir="co2_data_correct_hox/co2_%0.0f"%(
+#                         float(sys.argv[1])*100),
+#                         num_samples=100)
 #plotRandomIronPartition(directory="rand_sim_hires_gamma1.0", use_all=True)
 #zStatAndPlot(directory="correct_hox_modern_gamma07")
 #runMultithreadAcrossParams(output_dir="new_output")
