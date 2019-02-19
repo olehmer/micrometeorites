@@ -37,14 +37,9 @@ FEO_MELTING_TEMP = 1720 #melting temp of Fe) [K]
 RHO_FE = 7000 #liquid Fe density [kg m-3]
 RHO_FEO = 4400 #liquid FeO density [kg m-3]
 
-GAMMA = 0.9
+GAMMA = 1.0
 CO2_FAC = -1 #the CO2 concentration for this model, -1 turns it off and uses O2
 
-#oxidation via CO2 is endothermic so DELTA_H_OX is negative
-DELTA_H_OX = -465000 #heat of oxidation for CO2 + Fe -> CO +FeO [J kg-1]
-if CO2_FAC == -1:
-    #oxidation via oxygen is exothermic
-    DELTA_H_OX = 3716000 #heat of oxidation [J kg-1] from Genge
 
 class impactAngleDistribution(stats.rv_continuous):
     """
@@ -410,6 +405,10 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
 
         alt, vel_tan, vel_rad, mass_fe, mass_feo, temp = y_in
 
+        #read CO2_FAC from command line if present
+        if len(sys.argv) == 2:
+            CO2_FAC = float(sys.argv[1])
+
         if mass_fe < 0:
             mass_fe = 0
         if mass_feo < 0:
@@ -461,17 +460,19 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
         dmass_feo_dt = -dm_evap_dt + (M_FEO/M_O)*ox_enc
         dmass_fe_dt = -(M_FE/M_O)*ox_enc
         
-        #TODO dq_ox_dt is in error, it should by dmass_feo_dt, not dm_evap_dt here
-        #right?
-        #dq_ox_dt = DELTA_H_OX*dm_evap_dt #Genge equation 14
+        #oxidation via CO2 is endothermic so DELTA_H_OX is negative
+        DELTA_H_OX = -465000 #heat of oxidation for CO2 + Fe -> CO +FeO [J kg-1]
+        if CO2_FAC == -1:
+            #oxidation via oxygen is exothermic
+            DELTA_H_OX = 3716000 #heat of oxidation [J kg-1] from Genge
+
         dq_ox_dt = DELTA_H_OX*(M_FEO/M_O)*ox_enc #Genge equation 14
-        #dq_ox_dt = DELTA_H_OX*dmass_feo_dt #Genge equation 14
 
         #equation 6 of Genge (2016). This has the oxidation energy considered
         #which is described by equation 14
         dtemp_dt = 1/(rad*C_SP*rho_m)*\
                    (3*rho_a*vel**3/8 - 3*L_V*dm_evap_dt/(4*pi*rad**2) - 
-                    3*SIGMA*temp**4 - 3*dq_ox_dt/(4*pi*rad**2))
+                    3*SIGMA*temp**4 + 3*dq_ox_dt/(4*pi*rad**2))
 
         return [dalt_dt, 
                 dvel_tan_dt, 
@@ -1074,9 +1075,11 @@ def plot_co2_data_mean(directory="co2_runs"):
 #plot_particle_parameters(3.665E-9, 13200, 45*pi/180)
 
 #plot_co2_data_mean(directory="co2_data")
-#generateRandomSampleData(output_dir="new_model_oxygen_gamma09",
-#        num_samples=500)
+generateRandomSampleData(output_dir="co2_data_correct_hox/co2_%0.0f"%(
+                         float(sys.argv[1])*100),
+                         num_samples=100)
 #plotRandomIronPartition(directory="rand_sim_hires_gamma1.0", use_all=True)
-zStatAndPlot(directory="new_model_oxygen_gamma09")
+#zStatAndPlot(directory="correct_hox_modern_gamma07")
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
+
