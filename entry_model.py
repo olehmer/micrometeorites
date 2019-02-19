@@ -1061,11 +1061,9 @@ def plot_co2_data_mean(directory="co2_runs"):
         ind_dir = 1
     gap = abs(means[mean_ind] - means[mean_ind + ind_dir])
     val = abs(t_mean - means[mean_ind])
-    print(gap)
-    print(val)
     cur_frac = val/gap
-    t_co2_val = cur_frac*co2_percents[mean_ind] + \
-            (1-cur_frac)*co2_percents[mean_ind + ind_dir]
+    t_co2_val = (1-cur_frac)*co2_percents[mean_ind] + \
+                cur_frac*co2_percents[mean_ind + ind_dir]
 
     std_tops = np.clip(std_tops, 0, 1)
     std_bots = np.clip(std_bots, 0, 1)
