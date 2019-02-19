@@ -1055,6 +1055,7 @@ def plot_co2_data_mean(directory="co2_runs"):
     t_std = np.std(tomkins_data)
     mean_ind = np.argmin(np.abs(means - t_mean))
 
+    #TODO make sure the t_mean is between two points
     ind_dir = -1
     if t_mean < means[mean_ind]:
         #linearly interpolate to next point
