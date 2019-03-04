@@ -6,7 +6,7 @@ Owen Lehmer - 1/14/19
 """
 
 from multiprocessing import Pool, cpu_count
-from math import sin, cos, pi, floor, ceil, sqrt
+from math import sin, cos, pi, floor, ceil, sqrt, exp
 from scipy.integrate import solve_ivp
 from scipy import stats
 from tqdm import tqdm
@@ -28,6 +28,7 @@ GAS_CONST = 8.314 #ideal gas constant [J mol-1 K-1]
 M_FE = 0.0558 #molecular weight of Fe [kg mol-1]
 M_O = 0.016 #molecular weight of O [kg mol-1]
 M_FEO = M_FE + M_O #molecular weight of FeO [kg mol-1]
+M_CO2 = 0.044 #molecular weight of CO2 [kg mol-1]
 L_V = 6.050E6 #latent heat of vaporization for FeO [J kg-1] from Genge
 C_SP = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
 FE_MELTING_TEMP = 1809 #temperature at which Fe melts [K]
@@ -372,18 +373,32 @@ def get_radius_and_density(m_fe, m_feo, not_array=True):
     return new_rad, new_rho
 
 
+def fe_co2_rate_constant(temp):
+    """
+    Calculate the rate constant for the reaction Fe + CO2 -> FeO + CO from
+    Smirnov (2008). The reaction is assumed to be first order.
+
+    Inputs:
+        temp - the temperature of the micrometeorite [K]
+
+    Returns:
+        k_fe_co2 - the reaction rate constant [m3 mol-1 s-1]
+    """
+
+    k_fe_co2 = 2.9E8*exp(-15155/temp)
+    return k_fe_co2
 
 def simulate_particle_ivp(input_mass, input_vel, input_theta, 
-        max_time_step=0.0005):
+        time_step=0.005):
     """
     Top level function to simulate a micrometeorite using the solve_ivp function
     from scipy.
 
     Inputs:
-        input_mass    - the initial mass of the micrometeorite [kg]
-        input_vel     - the initial entry velocity of the micrometeorite [m s-1]
-        input_theta   - initial entry angle of the micrometeorite [radians]
-        max_time_step - the maximum time step to use in the simulation [s]
+        input_mass  - the initial mass of the micrometeorite [kg]
+        input_vel   - the initial entry velocity of the micrometeorite [m s-1]
+        input_theta - initial entry angle of the micrometeorite [radians]
+        time_step   - the maximum time step to use in the simulation [s]
 
     Returns:
         res - the output from solve_ivp()
@@ -429,7 +444,10 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
         #calculate the atmospheric density and total oxygen density
         rho_a, rho_o = atmospheric_density_and_oxygen(alt)
         if CO2_FAC != -1:
-            rho_o = rho_a*CO2_FAC*(16/44) #the O is 16/44 of the mass of CO2
+            #CO2 is the oxidant, so store CO2 density on the oxidant variable
+            rho_o = rho_a*CO2_FAC #use rho_o to track CO2 density
+
+            #rho_o = rho_a*CO2_FAC*(16/44) #the O is 16/44 of the mass of CO2
 
         #calculate the radial and tangential velocity derivatives 
         #we've assumed a flat Earth here
@@ -443,11 +461,37 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
         #Genge equation 13, which is in [dynes cm-2], converted to [Pa] here
         p_v = 10**(10.3-20126/temp)
 
-        #genge equation 12 
+        #a note about ox_enc. This variable is recording the total oxygen (in
+        #kg s-1) that is being absorbed by the micrometeorite. For CO2 reactions
+        #this calculation uses kinetics while reactions with O2 just follow the
+        #total oxygen concentration, as described by Genge.
         ox_enc = 0
         if temp > FE_MELTING_TEMP or (mass_feo > 0 and temp > FEO_MELTING_TEMP):
-            #the particle is molten, let oxygen be absorbed
-            ox_enc = GAMMA*rho_o*pi*rad**2*vel
+            if CO2_FAC != -1:
+                #this is oxidation via CO2, use kinetics
+                k_rate = fe_co2_rate_constant(temp) #[m3 mol-1 s-1]
+                co2_moles = rho_o/M_CO2 #CO2 molarity [mol m-3]
+                fe_moles = RHO_FE/M_FE #Fe molarity [mol m-3]
+                rate = k_rate*fe_moles*co2_moles #reaction rate [mol m-3 s-1]
+
+                #see if the reaction is limited by reactant availability or 
+                #the speed of the reaction
+                step_volume = pi*rad**2*vel*time_step #total volume [m3]
+                co2_moles_enc = rho_o*step_volume/M_CO2 #total CO2 [mol]
+                rate_moles_enc = rate*step_volume*time_step #moles of FeO produced
+                if rate_moles_enc < co2_moles_enc:
+                    #the moles of FeO produced was less than the number of CO2
+                    #moles available. So the reaction is limited by the reaction
+                    #rate, not by the reactant concentration.
+                    ox_enc = rate_moles_enc*M_O/time_step #[kg s-1]
+                else:
+                    #the reaction would have consumed more CO2 if available, so
+                    #let all the CO2 encountered be used.
+                    ox_enc = co2_moles_enc*M_O/time_step #[kg s-1]
+
+            else:
+                #let oxygen be absorbed following Genge
+                ox_enc = GAMMA*rho_o*pi*rad**2*vel
 
         #Genge equation 7, but the Langmuir formula has been adjusted for SI
         #this mass loss rate is in [kg s-1] of FeO
@@ -490,10 +534,15 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
            300] #initial temperature of micrometeorite [K], not important
 
     #the time range [s] used by solve_ivp()
-    time_range = [0, 25]
+    upper_limit = 30
+    if input_theta*180/pi > 45:
+        upper_limit = 45
+    if input_theta*180/pi > 60:
+        upper_limit = 70
+    time_range = [0, upper_limit]
 
 
-    res = solve_ivp(sim_func, time_range, y_0, max_step=max_time_step)
+    res = solve_ivp(sim_func, time_range, y_0, max_step=time_step)
 
     return res
 
@@ -575,7 +624,7 @@ def saveModelData(data, filename):
     file_obj = open(filename, "w")
     for d in data:
         line = ""
-        if isinstance(d, tuple) or isinstance(d, np.ndarray):
+        if isinstance(d, (tuple, np.ndarray)):
             for item in d:
                 line += "%2.10e "%item
         else:
@@ -600,7 +649,7 @@ def multithreadWrapper(args):
     mass, velocity, theta = args
     
     tries = -1 #track the number of attempts
-    MAX_TRIES = 4 #the orders of magnitude to reduce by overall, in increments
+    MAX_TRIES = 3 #the orders of magnitude to reduce by overall, in increments
                   #of 1
     initial_max_step = 0.01 #the initial time step to use [s]
     result = (0, 0)
@@ -609,14 +658,24 @@ def multithreadWrapper(args):
         tries += 1
         try:
             res = simulate_particle_ivp(mass, velocity, theta, 
-                    max_time_step=initial_max_step*10**(-tries))
+                    time_step=initial_max_step*10**(-tries))
             data = res.y
             final_radius, fe_area = get_final_radius_and_fe_area_from_sim(data)
 
             result = (final_radius, fe_area)
-        except ValueError:
+        except:
+            #the run failed, probably due to oscillations in the temperature
+            #reduce the time step and try again.
+            #NOTE: the times step will only be reduced to 0.0001 s. If the 
+            #      simulation won't converge at that time step just give up. The
+            #      really fast, and/or really big particles are the ones that
+            #      fail, but they're the least common so throwing them out won't
+            #      impact the final results in a meaningful way. Further 
+            #      reducing the time step would let them run, but it takes too
+            #      long.
             pass
         else:
+            #the try succeeded, set tries above the limit and exit the loop.
             tries = MAX_TRIES + 1
 
 #    print("-------------------------------------------")
@@ -634,7 +693,7 @@ def multithreadWrapper(args):
 
     if tries != MAX_TRIES + 1:
         #this run didn't converge, return negative values
-        result = ( -1, -1)
+        result = (-1, -1)
 
 
     return result
@@ -709,7 +768,7 @@ def runMultithreadAcrossParams(output_dir="output"):
                 return
 
         mass_count = 35
-        vel_count = 2 
+        #vel_count = 2 
         the_count = 25
         #masses between 5 and 100 microns [kg]
         masses = np.linspace(3.665E-12, 2.932E-8, mass_count)
@@ -878,7 +937,7 @@ def zStatAndPlot(directory="rand_sim"):
     print("Genge mean: %0.4f, Std: %0.4f"%(np.mean(genge_data), np.std(genge_data)))
 
 
-    plt.hist(fe_frac_array, bins=20, normed=True, alpha=0.5, color="#1f77b4")
+    plt.hist(fe_frac_array, bins=15, normed=True, alpha=0.5, color="#1f77b4")
     plt.hist(genge_data, bins=20, normed=True, alpha=0.5, color="#ff7f0e")
     plt.errorbar([np.mean(genge_data)], [7.8], xerr=[2*np.std(genge_data)], 
                  fmt='-o', color="#ff7f0e")
@@ -1005,7 +1064,7 @@ def plot_co2_data_mean(directory="co2_runs"):
     Calculate the mean Fe area for varying co2 levels
     """
 
-    num_runs =25
+    num_runs = 24
     means = np.zeros(num_runs)
     co2_percents = np.zeros(num_runs)
     std_tops = np.zeros(num_runs)
@@ -1069,6 +1128,11 @@ def plot_co2_data_mean(directory="co2_runs"):
     std_tops = np.clip(std_tops, 0, 1)
     std_bots = np.clip(std_bots, 0, 1)
 
+    #set the font size of the labels
+    for label in (plt.gca().get_xticklabels() + plt.gca().get_yticklabels()):
+        label.set_fontsize(16)
+    font_size = {'size': '18'}
+
     r0 = Rectangle((pure_ox_val, 0), co2_percents[-1]-pure_ox_val, 1, 
             color="lightblue", alpha=0.5, zorder=1)
     plt.gca().add_patch(r0)
@@ -1078,8 +1142,8 @@ def plot_co2_data_mean(directory="co2_runs"):
     plt.errorbar([t_co2_val], [t_mean], yerr=[t_std*2], fmt='-o', zorder=4)
     plt.xlim(ceil(co2_percents[0]), floor(co2_percents[-1]))
     plt.ylim(0, 1)
-    plt.xlabel(r"Atmospheric CO${_2}$ [Volume %]")
-    plt.ylabel("Fe Fraction")
+    plt.xlabel(r"Atmospheric CO${_2}$ [Volume %]", fontdict=font_size)
+    plt.ylabel("Fe Fraction", fontdict=font_size)
     plt.show()
 
 
@@ -1088,14 +1152,23 @@ def plot_co2_data_mean(directory="co2_runs"):
 
 #50 micron radius has mass 3.665E-9 kg
 #Figure 1: this function runs a basic, single model run
-#plot_particle_parameters(3.665E-9, 13200, 45*pi/180)
+#plot_particle_parameters(3.665E-9, 11200, 45*pi/180)
 
-plot_co2_data_mean(directory="co2_data_correct_hox")
-#generateRandomSampleData(output_dir="co2_data_correct_hox/co2_%0.0f"%(
+#Figure - main results!
+plot_co2_data_mean(directory="co2_data_FINAL")
+
+#main function to generate data, read from command line
+#generateRandomSampleData(output_dir="co2_data_FINAL/co2_%0.0f"%(
 #                         float(sys.argv[1])*100),
-#                         num_samples=100)
-#plotRandomIronPartition(directory="rand_sim_hires_gamma1.0", use_all=True)
-#zStatAndPlot(directory="correct_hox_modern_gamma07")
+#                         num_samples=200)
+#main function for data but no command line
+#generateRandomSampleData(output_dir="correct_hox_modernO2_gamma07",
+#        num_samples=500)
+
+#Figure - plot that compares to modern micrometeorite collection
+#zStatAndPlot(directory="correct_hox_modernO2_gamma07")
+
+
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
-
+#plotRandomIronPartition(directory="rand_sim_hires_gamma1.0", use_all=True)
