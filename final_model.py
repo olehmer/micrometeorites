@@ -41,6 +41,9 @@ RHO_FEO = 4400 #liquid FeO density [kg m-3]
 GAMMA = 1.0
 CO2_FAC = 0.5 #the CO2 concentration for this model, -1 turns it off and uses O2
 
+PREVIOUS_TIME = 0 #track the previous time so we can know the time step during
+                  #integration
+
 
 class impactAngleDistribution(stats.rv_continuous):
     """
@@ -403,8 +406,8 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
     Returns:
         res - the output from solve_ivp()
     """
-    global prev_time
-    prev_time = 0
+    global PREVIOUS_TIME
+    PREVIOUS_TIME = 0
 
 
     def sim_func(time, y_in):
@@ -412,7 +415,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
         The callable function passed to solve_ivp()
         
         Inputs:
-            _    - placeholder for time at which to calculate [s] : NOT USED
+            time - time at which to calculate [s]
             y_in - inputs to the function, has the form:
                 TODO: put in form
 
@@ -420,7 +423,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
             dy_dt - the derivative of each y value at t
         """
 
-        global prev_time
+        global PREVIOUS_TIME
 
         alt, vel_tan, vel_rad, mass_fe, mass_feo, temp = y_in
 
@@ -428,11 +431,8 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
 #        if len(sys.argv) == 2:
 #            CO2_FAC = float(sys.argv[1])
 
-        time_step = max_time_step# time - prev_time
-        test_step = time - prev_time
-        #print("test_step: %0.5f, diff=%0.5f"%(test_step, abs(test_step-time_step)))
-        prev_time = time
-        time_step = test_step
+        time_step = time - PREVIOUS_TIME
+        PREVIOUS_TIME = time
 
         if mass_fe < 0:
             mass_fe = 0
@@ -480,27 +480,26 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
             if CO2_FAC != -1:
                 #this is oxidation via CO2, use kinetics
                 k_rate = fe_co2_rate_constant(temp) #[m3 mol-1 s-1]
-                co2_moles = rho_o/M_CO2 #CO2 molarity [mol m-3]
-                fe_moles = RHO_FE/M_FE #Fe molarity [mol m-3]
-                rate = k_rate*fe_moles*co2_moles #reaction rate [mol m-3 s-1]
+
+                #the total CO2 accumulated by the micrometeorite in this timestep
+                co2_total = 0.75*vel*rho_o/rad/M_CO2 #[mol m-3 s-1]
+                                               
+                co2_conc = co2_total*time_step #CO2 molarity [mol m-3]
+                mm_vol = 4/3*pi*rad**3
+                fe_moles = mass_fe/mm_vol/M_FE #Fe molarity [mol m-3]
+                rate = k_rate*fe_moles*co2_conc #reaction rate [mol m-3 s-1]
 
                 #see if the reaction is limited by reactant availability or 
                 #the speed of the reaction
-                step_volume = pi*rad**2*vel*time_step #total volume [m3]
-                co2_moles_enc = rho_o*step_volume/M_CO2 #total CO2 [mol]
-                rate_moles_enc = rate*step_volume*time_step #moles of FeO produced
-                if rate_moles_enc < co2_moles_enc:
+                if rate < co2_total:
                     #the moles of FeO produced was less than the number of CO2
                     #moles available. So the reaction is limited by the reaction
                     #rate, not by the reactant concentration.
-                    ox_enc = rate_moles_enc*M_O/time_step #[kg s-1]
-                    print("ORL1")
+                    ox_enc = rate*M_O*mm_vol #total oxygen absorbed [kg s-1]
                 else:
                     #the reaction would have consumed more CO2 if available, so
                     #let all the CO2 encountered be used.
-                    ox_enc = co2_moles_enc*M_O/time_step #[kg s-1]
-                    print("ORL2")
-                print("ox_enc = %2.3e"%(ox_enc))
+                    ox_enc = co2_total*M_O*mm_vol #[kg s-1]
 
             else:
                 #let oxygen be absorbed following Genge
