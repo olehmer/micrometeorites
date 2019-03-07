@@ -41,9 +41,6 @@ RHO_FEO = 4400 #liquid FeO density [kg m-3]
 GAMMA = 1.0
 CO2_FAC = 0.5 #the CO2 concentration for this model, -1 turns it off and uses O2
 
-PREVIOUS_TIME = 0 #track the previous time so we can know the time step during
-                  #integration
-
 
 class impactAngleDistribution(stats.rv_continuous):
     """
@@ -406,11 +403,29 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
     Returns:
         res - the output from solve_ivp()
     """
-    global PREVIOUS_TIME
-    PREVIOUS_TIME = 0
 
 
-    def sim_func(time, y_in):
+    def solidified(_, __, tracker):
+        """
+        Stop the solver when the particle has solidified after melting
+
+        Inputs:
+            _       - placeholder for time
+            __      - placeholder for y inputs
+            tracker - object that stores whether to stop or not.
+
+        Returns:
+            0 - stop the simulation
+            1 - don't stop the simulation
+        """
+
+        result = 1
+        if tracker["solidified"]:
+            result = 0
+        return result
+
+
+    def sim_func(time, y_in, tracker):
         """
         The callable function passed to solve_ivp()
         
@@ -418,12 +433,11 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
             time - time at which to calculate [s]
             y_in - inputs to the function, has the form:
                 TODO: put in form
+            tracker - holds the previous time to find the time step
 
         Returns:
             dy_dt - the derivative of each y value at t
         """
-
-        global PREVIOUS_TIME
 
         alt, vel_tan, vel_rad, mass_fe, mass_feo, temp = y_in
 
@@ -431,8 +445,8 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
 #        if len(sys.argv) == 2:
 #            CO2_FAC = float(sys.argv[1])
 
-        time_step = time - PREVIOUS_TIME
-        PREVIOUS_TIME = time
+        time_step = time - tracker["time"]
+        tracker["time"] = time
 
         if mass_fe < 0:
             mass_fe = 0
@@ -530,6 +544,24 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
                    (3*rho_a*vel**3/8 - 3*L_V*dm_evap_dt/(4*pi*rad**2) - 
                     3*SIGMA*temp**4 + 3*dq_ox_dt/(4*pi*rad**2))
 
+
+        #check the temperatures, stop the simulation if the temp has peaked
+        #and solidified
+        #first set the peak temperature if needed
+        if temp > tracker["peak_temp"]:
+            tracker["peak_temp"] = temp
+
+        if temp < tracker["peak_temp"]/2 and temp < FEO_MELTING_TEMP:
+            
+            #one last check on the temperature. Sometime the solver oscillates
+            #for a step or two and can trigger an end, only end if the step was
+            #less than a 10% change in temp
+            if temp > tracker["last_temp"]*0.9:
+                #setting this to True stops the simulation
+                tracker["solidified"] = True
+        tracker["last_temp"] = temp
+
+
         return [dalt_dt, 
                 dvel_tan_dt, 
                 dvel_rad_dt, 
@@ -546,15 +578,16 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta,
            300] #initial temperature of micrometeorite [K], not important
 
     #the time range [s] used by solve_ivp()
-    upper_limit = 30
-    if input_theta*180/pi > 45:
-        upper_limit = 45
-    if input_theta*180/pi > 60:
-        upper_limit = 70
-    time_range = [0, upper_limit]
+    time_range = [0, 120]
 
+    #we need delta_t and states, so track the time and melt state with this obj
+    tracker = {"time": 0, "solidified": False, "peak_temp": 0, "last_temp":0}
 
-    res = solve_ivp(sim_func, time_range, y_0, max_step=max_time_step)
+    end_cond = lambda t, y: solidified(t, y, tracker)
+    end_cond.terminal = True
+
+    res = solve_ivp(lambda t, y: sim_func(t, y, tracker), 
+            time_range, y_0, max_step=max_time_step, events=end_cond)
 
     return res
 
@@ -810,13 +843,14 @@ def runMultithreadAcrossParams(output_dir="output"):
 
 
 
-def plot_particle_parameters(input_mass, input_vel, input_theta):
+def plot_particle_parameters(input_mass, input_vel, input_theta, max_step=0.005):
     """
     Function to plot the various parameters of the simulation. This function
     was used to generate Figure 1.
     """
 
-    res = simulate_particle_ivp(input_mass, input_vel, input_theta)
+    res = simulate_particle_ivp(input_mass, input_vel, input_theta, 
+            max_time_step=max_step)
     data = res.y
     times = res.t
 
@@ -1160,11 +1194,21 @@ def plot_co2_data_mean(directory="co2_runs"):
 
 
 
-
+#theta = impactAngleDistribution().sample(size=1)[0]
+#velocity = initialVelocityDistribution().sample(size=1)[0]
+#velocity = velocity*1000 #convert from [km s-1] to [m s-1]
+#mass = initialMassDistribution().sample(size=1)[0]
+#mass = mass/1000 #convert from [g] to [kg]
+#theta = 45*pi/180
+#velocity = 14000
+#mass = 1E-9
+#print("Inputs: theta=%0.1f [deg], vel=%0.1f [km s-1], mass=%2.2e [kg]"%(theta*180/pi, velocity/1000, mass))
+#plot_particle_parameters(mass, velocity, theta, max_step=0.001)
+#
 
 #50 micron radius has mass 3.665E-9 kg
 #Figure 1: this function runs a basic, single model run
-plot_particle_parameters(3.665E-9, 11200, 45*pi/180)
+#plot_particle_parameters(3.665E-9, 11200, 45*pi/180)
 
 #Figure - main results!
 #plot_co2_data_mean(directory="co2_data_FINAL")
