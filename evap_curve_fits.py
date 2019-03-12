@@ -27,6 +27,20 @@ def iron_curve_fit():
     print("\tA = %2.3e"%(coeffs[0][0]))
     print("\tB = %2.3e"%(coeffs[0][1]))
 
+def iron_curve_fit_base_10():
+    temps = [1607, 1695, 1794, 1892, 1991, 2091]
+    evap_rate = [0.1778, 0.7792, 3.559, 13.33, 44.36, 131.0]
+
+    def func(T, a, b):
+        return 10**(a-b/T)
+
+    coeffs = curve_fit(func, temps, evap_rate)
+    print("for p=10^(A-B/T):")
+    print("\tA = %2.3e"%(coeffs[0][0]))
+    print("\tB = %2.3e"%(coeffs[0][1]))
+
+
+
 
 def magnetite_curve_fit():
     temps = [1608, 1693, 1792, 1890, 1989]
@@ -47,3 +61,5 @@ print("\n--------------Iron Fit---------------")
 iron_curve_fit()
 print("\n--------------Magnetite Fit---------------")
 magnetite_curve_fit()
+print("\n----------------Iron Fit Base 10------------------")
+iron_curve_fit_base_10()

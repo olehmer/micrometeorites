@@ -387,6 +387,184 @@ def fe_co2_rate_constant(temp):
     k_fe_co2 = 2.9E8*exp(-15155/temp)
     return k_fe_co2
 
+def dynamic_ode_solver(func, start_time, max_time, initial_guess, 
+        param_to_monitor, max_param_delta,
+        base_time_step, min_step_time, end_condition):
+    """
+    Solves a system of ordinary differential equations with dynamic time steps.
+    The passed in function (func) should take two arguments, a time step value,
+    and the current parameter values. It will have the form:
+        func(time_step, ys)
+    The func provided should return the derivatives of each value considered.
+    This routine will start at time, start_time, and run until max_time is 
+    reached, or the end condition is met. The end condition is set by the
+    end_condition paramter, which should be a function like func that takes
+    both the current time (NOT TIME STEP) and the system values like:
+        end_condition(current_time, ys)
+    and should return 0 if the integration should terminate, or 1 if not. This
+    solver will attempt each time step and if the % change in the monitored 
+    parameter is greater than the provided max_param_delta (as a fraction), then
+    the time step will be reduced by half (repeatedly if necessary) until the
+    minimum step time is reached (min_step_time). The step time will slowly
+    relax back to the base time step (base_time_step) specified by the input. 
+    The parameter to monitor should be an integer in the ys array. For example,
+    if the initial guess has values:
+        initial_guess = [position, velocity]
+    and you want to make sure the position never changes by more than 1% you'd
+    set param_to_monitor=0 and max_param_delta=0.01. 
+
+    Inputs:
+        func             - function that takes time step and values, returns 
+                           derivatives
+        start_time       - simulation start time [s]
+        max_time         - maximum time to run simulation before returning an 
+                           error [s]
+        initial_guess    - array with initial parameter values
+        param_to_monitor - index of which parameter to track
+        max_param_delta  - fractional difference to tolerate in param_to_monitor. 
+                           A value of 0.01 means changes must be less than 1%. 
+                           A value of 0.2 would mean values must be less than 20%.
+        base_time_step   - the default step size to use in integration [s]
+        min_step_time    - the smallest time step to allow. If max_param_delta 
+                           is exceeded at the smallest allowed time step an 
+                           error status will be returned.
+        end_condition    - function that takes current time and values, returns 
+                           0 if the integration should end, 1 if not.
+
+    Returns:
+        times  - the array of time values [s] calculated 
+        ys     - the array of parameter values at each time step
+        status - the status of the solver. Values are:
+                    -1 : failure because max_param_delta was exceeded at the 
+                         smallest allowed time step.
+                     0 : simulation ended without meeting end condition (it hit
+                         max_time).
+                     1 : simulation reached end condition successfully.
+    """
+
+    y_cur = np.array(initial_guess)
+
+    times = []
+    ys = []
+    current_time = start_time
+    cur_step_size = base_time_step
+    next_relax = -1 #if >0 this is the next time to increase the time step
+
+    end_cond_val = True #set to false if the end condition is met 
+
+    status = 0 #status of the solver
+    not_failed = True #set to false if the solver fails
+
+    while current_time < max_time and end_cond_val and not_failed:
+        if end_condition(current_time, ys) == 0:
+            end_cond_val = False #we hit the end condition
+            status = 1 #success!
+        else:
+            #first check if the time step should relax
+            if cur_step_size < base_time_step and current_time >= next_relax:
+                #the step should relax, double it
+                next_relax = -1
+                cur_step_size = cur_step_size*2
+                if cur_step_size > base_time_step:
+                    #make sure the base time step isn't exceeded
+                    cur_step_size = base_time_step
+
+            #get the current value of the param to monitor
+            monitor_cur = y_cur[param_to_monitor]
+
+            #run the function to get the new derivative values
+            deltas = np.array(func(cur_step_size, y_cur))
+
+            #calculate the new values
+            y_new = y_cur + deltas*cur_step_size
+
+            #get the new monitor parameter
+            monitor_new = y_new[param_to_monitor]
+
+            #check the percent change in the monitor
+            if abs(monitor_new - monitor_cur)/monitor_new > max_param_delta:
+                #the change was larger than allowed. Reduce the step size and
+                #try again
+
+                #first check if the step size is already minimal, fail if so
+                if cur_step_size == min_step_time:
+                    not_failed = False
+                    status = -1 #time step fail
+                else:
+                    #not at the smallest allowed step, so halve the step size
+                    cur_step_size = cur_step_size/2
+                    if cur_step_size < min_step_time:
+                        cur_step_size = min_step_time
+
+                    if next_relax < 0:
+                        #the time to try increasing step size isn't set, set it
+                        next_relax = current_time + base_time_step
+                
+            else:
+                #the step succeeded, add the new values and increment
+                current_time += cur_step_size
+                ys.append(y_new)
+                times.append(current_time)
+                y_cur = y_new
+
+    return times, ys, status
+
+
+
+def simple_ode_integrate(func, time_range, initial_guess, step_size, 
+        end_condition, max_delta=50):
+    """
+    Perform a simple Newtonian integration of the passed in func. This function
+    will follow the conventions of solve_ivp.
+
+    Inputs:
+        func - function that returns derivatives of each value. func should have
+               form func(t,y).
+        time_range - the time range to consider [start, end]
+        initial_guess - initial y parameters for func
+        step_size - the time step to use [s]
+        end_condition - function that returns true if the program should end
+        max_delta - the maximum tolerable change in a single timestep for temp
+
+    Returns
+        times - the time values calculated at
+        ys - the simulation values at each time
+        status - the result of the run:
+            1 = success
+            0 = failed
+    """
+    max_num_steps = (time_range[1]-time_range[0])/step_size
+
+    y_cur = np.array(initial_guess)
+
+    times = []
+    ys = []
+    current_time = 0
+    status = 1
+
+    index = 0
+    while index < max_num_steps:
+        index += 1
+        if end_condition(step_size, ys) == 0:
+            index = max_num_steps
+        else:
+            temp_old = y_cur[5]
+            deltas = np.array(func(step_size, y_cur))
+            y_cur = y_cur + deltas*step_size
+            temp_new = y_cur[5]
+            if abs(temp_old - temp_new) > max_delta:
+                status = 0
+                index = max_num_steps
+            current_time += step_size
+            ys.append(y_cur)
+            times.append(current_time)
+
+
+    return times, ys, status
+
+
+
+
 
 def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1,
         max_time_step=0.005, zero_break = False):
@@ -446,8 +624,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1,
 
         alt, vel_tan, vel_rad, mass_fe, mass_feo, temp = y_in
 
-        time_step = time - tracker["time"]
-        tracker["time"] = time
+        time_step = time 
 
         if mass_fe < 0:
             mass_fe = 0
@@ -540,18 +717,11 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1,
             dm_evap_fe_dt *= fe_evap_frac
             dm_evap_dt *= feo_evap_frac
 
-#            print("dM_dt*DT=%2.2e, M_FeO=%2.2e, M_Fe=%2.2e, frac=%0.2f"%(dm_evap_dt*time_step, mass_feo, mass_fe, fe_evap_frac))
-#            print("dm_evap_dt=%2.3e, dm_evap_fe_dt=%2.3e"%(dm_evap_dt*time_step, dm_evap_fe_dt*time_step))
-#            print("-----------------------------------------------")
-                
-
         dmass_feo_dt = -dm_evap_dt + (M_FEO/M_O)*ox_enc
         dmass_fe_dt = -(M_FE/M_O)*ox_enc - dm_evap_fe_dt
 
         #combine all the evaporative loses here
         #NOTE: we've assumed the latent heat of FeO=Fe for evaporation here
-        #dm_evap_dt += dm_evap_fe_dt
-        dm_evap_fe_dt = 0
         total_evap_dt = dm_evap_fe_dt + dm_evap_dt
         
         #oxidation via CO2 is endothermic so DELTA_H_OX is negative
@@ -587,8 +757,6 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1,
         tracker["last_temp"] = temp
 
 
-        if temp > FE_MELTING_TEMP:
-            print("Fe mass dt: %2.3e"%(dmass_fe_dt))
         return [dalt_dt, 
                 dvel_tan_dt, 
                 dvel_rad_dt, 
@@ -614,8 +782,25 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1,
     end_cond = lambda t, y: solidified(t, y, tracker)
     end_cond.terminal = True
 
-    res = solve_ivp(lambda t, y: sim_func(t, y, tracker), 
-            time_range, y_0, max_step=max_time_step, events=end_cond)
+
+    start_time = 0
+    max_time = 300
+    param_to_monitor = 5 #monitor temperature
+    max_param_delta = 0.01 #allow 1% change, max
+    base_time_step = 0.01
+    min_step_time = 0.000001
+    res = dynamic_ode_solver(lambda t, y: sim_func(t, y, tracker), start_time, 
+            max_time, y_0, param_to_monitor, max_param_delta, 
+            base_time_step, min_step_time, end_cond)
+
+#    step_size = max_time_step
+#    res = simple_ode_integrate(lambda t, y: sim_func(t, y, tracker), 
+#            time_range, y_0, step_size, end_cond)
+
+
+
+#    res = solve_ivp(lambda t, y: sim_func(t, y, tracker), 
+#            time_range, y_0, max_step=max_time_step, events=end_cond)
 
     return res
 
@@ -632,8 +817,8 @@ def get_final_radius_and_fe_area_from_sim(data):
         fe_frac - final micrometeorite Fe fractional area
     """
 
-    fe_mass = data[3, -1]
-    feo_mass = data[4, -1]
+    fe_mass = data[-1, 3]
+    feo_mass = data[-1, 4]
 
     #replace negative values
     if fe_mass < 0:
@@ -724,33 +909,32 @@ def multithreadWrapper(args):
     tries = -1 #track the number of attempts
     MAX_TRIES = 3 #the orders of magnitude to reduce by overall, in increments
                   #of 1
-    initial_max_step = 0.01 #the initial time step to use [s]
+    initial_max_step = 0.001 #the initial time step to use [s]
     result = (0, 0)
 
     while tries < MAX_TRIES: 
         tries += 1
-        try:
-            res = simulate_particle_ivp(mass, velocity, theta, 
-                    co2_percent=CO2_fac,
-                    max_time_step=initial_max_step*10**(-tries))
-            data = res.y
-            final_radius, fe_area = get_final_radius_and_fe_area_from_sim(data)
 
-            result = (final_radius, fe_area)
-        except:
-            #the run failed, probably due to oscillations in the temperature
-            #reduce the time step and try again.
-            #NOTE: the times step will only be reduced to 0.0001 s. If the 
-            #      simulation won't converge at that time step just give up. The
-            #      really fast, and/or really big particles are the ones that
-            #      fail, but they're the least common so throwing them out won't
-            #      impact the final results in a meaningful way. Further 
-            #      reducing the time step would let them run, but it takes too
-            #      long.
-            pass
-        else:
+        times, data, status = simulate_particle_ivp(mass, velocity, theta, 
+                co2_percent=CO2_fac,
+                max_time_step=initial_max_step*10**(-tries))
+        final_radius, fe_area = get_final_radius_and_fe_area_from_sim(np.array(data))
+
+        result = (final_radius, fe_area)
+
+        if status == 1:
             #the try succeeded, set tries above the limit and exit the loop.
             tries = MAX_TRIES + 1
+
+        #if the run failed, it's probably due to oscillations in the temperature
+        #reduce the time step and try again.
+        #NOTE: the times step will only be reduced to 0.00001 s. If the 
+        #      simulation won't converge at that time step just give up. The
+        #      really fast, and/or really big particles are the ones that
+        #      fail, but they're the least common so throwing them out won't
+        #      impact the final results in a meaningful way. Further 
+        #      reducing the time step would let them run, but it takes too
+        #      long.
 
     if tries != MAX_TRIES + 1:
         #this run didn't converge, return negative values
@@ -876,18 +1060,21 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
     was used to generate Figure 1.
     """
 
-    res = simulate_particle_ivp(input_mass, input_vel, input_theta, 
+    times, data, stat = simulate_particle_ivp(input_mass, input_vel, input_theta, 
             co2_percent=CO2_fac, max_time_step=max_step, zero_break=True)
-    data = res.y
-    times = res.t
 
-    alts = data[0, :]
-    velocities = (data[1, :]**2 + data[2, :]**2)**0.5
+    print("status: %d"%(stat))
+
+    times = np.array(times)
+    data = np.array(data)
+
+    alts = data[:, 0]
+    velocities = (data[:, 1]**2 + data[:, 2]**2)**0.5
     #data[3, data[3, :] < 0] = 0 #remove small negative values
     #data[4, data[4, :] < 0] = 0 #remove small negative values
-    fe_fracs = data[3, :]/(data[3, :] + data[4, :])
-    rads = get_radius_and_density(data[3, :], data[4, :], not_array=False)[0]
-    temps = data[5, :]
+    fe_fracs = data[:, 3]/(data[:, 3] + data[:, 4])
+    rads = get_radius_and_density(data[:, 3], data[:, 4], not_array=False)[0]
+    temps = data[:, 5]
 
     start_ind = -1
     end_ind = -1
@@ -966,7 +1153,6 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
              transform=ax4.transAxes)
 
     alts = (alts-EARTH_RAD)/1000
-    alts = data[3, :] #TODO ORL DELETE
     ax5.plot(times, alts)
     ax5.plot(times[start_ind:end_ind], alts[start_ind:end_ind], 
              color="#ff7f0e")
@@ -1262,7 +1448,7 @@ theta = 45*pi/180
 velocity = 12000
 mass = 4E-9
 #print("Inputs: theta=%0.1f [deg], vel=%0.1f [km s-1], mass=%2.2e [kg]"%(theta*180/pi, velocity/1000, mass))
-plot_particle_parameters(mass, velocity, theta, CO2_fac=0.5, max_step=0.001)
+plot_particle_parameters(mass, velocity, theta, CO2_fac=0.5, max_step=0.0001)
         
 
 
@@ -1288,6 +1474,6 @@ plot_particle_parameters(mass, velocity, theta, CO2_fac=0.5, max_step=0.001)
 
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
-#plotRandomIronPartition(directory="co2_data_updated/co2_69", use_all=True)
+#plotRandomIronPartition(directory="test_run", use_all=True)
 
-#analyzeData("co2_data_fixed_theta45/co2_30")
+#analyzeData("test_run")
