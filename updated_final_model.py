@@ -7,7 +7,6 @@ Owen Lehmer - 1/14/19
 
 from multiprocessing import Pool, cpu_count
 from math import sin, cos, pi, floor, ceil, sqrt, exp
-from scipy.integrate import solve_ivp
 from scipy import stats
 from tqdm import tqdm
 from matplotlib.patches import Rectangle
@@ -508,61 +507,6 @@ def dynamic_ode_solver(func, start_time, max_time, initial_guess,
                 y_cur = y_new
 
     return times, ys, status
-
-
-
-def simple_ode_integrate(func, time_range, initial_guess, step_size, 
-        end_condition, max_delta=50):
-    """
-    Perform a simple Newtonian integration of the passed in func. This function
-    will follow the conventions of solve_ivp.
-
-    Inputs:
-        func - function that returns derivatives of each value. func should have
-               form func(t,y).
-        time_range - the time range to consider [start, end]
-        initial_guess - initial y parameters for func
-        step_size - the time step to use [s]
-        end_condition - function that returns true if the program should end
-        max_delta - the maximum tolerable change in a single timestep for temp
-
-    Returns
-        times - the time values calculated at
-        ys - the simulation values at each time
-        status - the result of the run:
-            1 = success
-            0 = failed
-    """
-    max_num_steps = (time_range[1]-time_range[0])/step_size
-
-    y_cur = np.array(initial_guess)
-
-    times = []
-    ys = []
-    current_time = 0
-    status = 1
-
-    index = 0
-    while index < max_num_steps:
-        index += 1
-        if end_condition(step_size, ys) == 0:
-            index = max_num_steps
-        else:
-            temp_old = y_cur[5]
-            deltas = np.array(func(step_size, y_cur))
-            y_cur = y_cur + deltas*step_size
-            temp_new = y_cur[5]
-            if abs(temp_old - temp_new) > max_delta:
-                status = 0
-                index = max_num_steps
-            current_time += step_size
-            ys.append(y_cur)
-            times.append(current_time)
-
-
-    return times, ys, status
-
-
 
 
 
