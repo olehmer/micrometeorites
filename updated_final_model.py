@@ -838,17 +838,25 @@ def multithreadWrapper(args):
     
     result = (0, 0)
 
-    times, data, status = simulate_particle_ivp(mass, velocity, theta, 
-            co2_percent=CO2_fac)
-    final_radius, fe_area = get_final_radius_and_fe_area_from_sim(np.array(data))
+    try:
+        times, data, status = simulate_particle_ivp(mass, velocity, theta, 
+                co2_percent=CO2_fac)
+        final_radius, fe_area = get_final_radius_and_fe_area_from_sim(np.array(data))
 
-    result = (final_radius, fe_area)
+        result = (final_radius, fe_area)
 
-    if status != 1:
-        #the try failed, return the error value
-        #NOTE: this is because the time step was too too large for the input
-        #parameters. The only time this happens is for very fast, very large 
-        #particles (that are very rare), so it has negligible impact.
+        if status != 1:
+            #the try failed, return the error value
+            #NOTE: this is because the time step was too too large for the input
+            #parameters. The only time this happens is for very fast, very large 
+            #particles (that are very rare), so it has negligible impact.
+            result = (-1, -1)
+    except:
+        print("failed run with:")
+        print("mass: %2.2e, vel: %0.1f [km s-1], theta: %0.1f, CO2: %0.1f%%"%(
+            mass, velocity/1000, theta*180/pi, CO2_fac*100
+            ))
+        print("------------------------------------------------")
         result = (-1, -1)
 
 
@@ -1368,12 +1376,12 @@ def analyzeData(input_dir):
 #plot_particle_parameters(3.665E-9, 11200, 45*pi/180, CO2_fac=0.5)
 
 #Figure - main results!
-#plot_co2_data_mean(directory="co2_data_updated")
+plot_co2_data_mean(directory="co2_data_hires")
 
 #main function to generate data, read from command line
-generateRandomSampleData(output_dir="co2_data/co2_%0.0f"%(
-                         float(sys.argv[1])*100),
-                         num_samples=300)
+#generateRandomSampleData(output_dir="co2_data_hires/co2_%0.0f"%(
+#                         float(sys.argv[1])*100),
+#                         num_samples=500)
 #main function for data but no command line
 #generateRandomSampleData(output_dir="test_run",
 #        num_samples=500)
@@ -1385,6 +1393,6 @@ generateRandomSampleData(output_dir="co2_data/co2_%0.0f"%(
 
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
-#plotRandomIronPartition(directory="test_run", use_all=True)
+#plotRandomIronPartition(directory="co2_data/co2_60", use_all=True)
 
 #analyzeData("test_run")
