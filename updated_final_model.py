@@ -778,12 +778,12 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1):
     end_cond.terminal = True
 
 
-    start_time = 0
-    max_time = 300
+    start_time = 0 #[s]
+    max_time = 300 #[s] usually only need 5-20 seconds, return error if hit 300
     param_to_monitor = 5 #monitor temperature
     max_param_delta = 0.001 #allow 0.1% change, max
-    base_time_step = 0.01
-    min_step_time = 0.000001
+    base_time_step = 0.01 #[s]
+    min_step_time = 0.000001 #[s]
     res = dynamic_ode_solver(lambda t, y: sim_func(t, y, tracker), start_time, 
             max_time, y_0, param_to_monitor, max_param_delta, 
             base_time_step, min_step_time, end_cond)
@@ -904,7 +904,7 @@ def multithreadWrapper(args):
         #the try failed, return the error value
         #NOTE: this is because the time step was too too large for the input
         #parameters. The only time this happens is for very fast, very large 
-        #particles (that are very rare), so it has negligable impact.
+        #particles (that are very rare), so it has negligible impact.
         result = (-1, -1)
 
 
@@ -1429,7 +1429,7 @@ def analyzeData(input_dir):
 #main function to generate data, read from command line
 generateRandomSampleData(output_dir="co2_data/co2_%0.0f"%(
                          float(sys.argv[1])*100),
-                         num_samples=200)
+                         num_samples=300)
 #main function for data but no command line
 #generateRandomSampleData(output_dir="test_run",
 #        num_samples=500)
