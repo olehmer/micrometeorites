@@ -349,12 +349,12 @@ def simulateParticle():
     dt = 0.05 #time step [s]
     L_v = 6.050E6 #latent heat of vaporization [J kg-1]
 
-    max_iter = 1000
+    max_iter = 1000000
 
-    v_0 = 12000.0 #initial velocity [m s-1]
-    theta = 45*pi/180 #initial entry angle
+    v_0 = 8000.0 #initial velocity [m s-1]
+    theta = 87*pi/180 #initial entry angle
     phi = 0 #initial position around the Earth (always starts at 0)
-    altitude = 2.08E5 + earth_rad #initial altitude [m]
+    altitude = 2.00E6 + earth_rad #initial altitude [m]
 
     #arrays so hold results in
     altitudes = np.zeros(max_iter)
@@ -373,6 +373,7 @@ def simulateParticle():
             rho_a = atmosphericDensity(p_sur, altitude, isothermal_temp, 
                     scale_height, m_bar)
             rho_o = rho_a*0.21 #just use 21% oxygen at this point
+
 
         v_0, theta = velocityUpdate(theta, v_0, rho_a, rho_m, rad, dt, altitude)
         theta, phi, altitude = positionUpdate(altitude, v_0, theta, phi, dt)
@@ -394,8 +395,8 @@ def simulateParticle():
             end_index = i 
             break
 
-        if i*dt < 150 and (i*dt)%1==0:
-            print("time: %3d, radius=%2.3e, dm_dt=%2.3e"%(i*dt, rad,dm_dt))
+#        if i*dt < 150 and (i*dt)%1==0:
+#            print("time: %3d, radius=%2.3e, dm_dt=%2.3e"%(i*dt, rad,dm_dt))
 
     if end_index == -1:
         end_index = max_iter

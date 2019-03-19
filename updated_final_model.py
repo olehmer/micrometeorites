@@ -6,7 +6,7 @@ Owen Lehmer - 1/14/19
 """
 
 from multiprocessing import Pool, cpu_count
-from math import sin, cos, pi, floor, ceil, sqrt, exp
+from math import sin, cos, asin, pi, floor, ceil, sqrt, exp
 from scipy import stats
 from tqdm import tqdm
 from matplotlib.patches import Rectangle
@@ -568,7 +568,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1):
             dy_dt - the derivative of each y value at t
         """
 
-        alt, vel_tan, vel_rad, mass_fe, mass_feo, temp = y_in
+        alt, vel, theta, mass_fe, mass_feo, temp = y_in
 
         time_step = time 
 
@@ -585,9 +585,34 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1):
         #calculate gravity
         gravity = GRAV_CONST*EARTH_MASS/alt**2
 
-        #get the total velocity and angle
-        vel = (vel_tan**2 + vel_rad**2)**0.5 #velocity magnitude
-        #theta = asin(vel_tan/vel) #angle above surface
+
+        ###########################################################
+
+        #new radius from law of cosines
+        new_alt = ((vel*time_step)**2 + alt**2 - \
+                2*alt*vel*time_step*cos(theta))**0.5
+
+        #alpha will always be acute since we use small time steps
+        alpha = asin(vel*time_step*sin(theta)/new_alt)
+        phi = pi - alpha - theta
+
+        new_vel = (vel**2 + (gravity*time_step)**2 - \
+                2*vel*gravity*time_step*cos(phi))**0.5
+
+        new_theta = 0
+        if phi > pi/2:
+            #new theta is acute
+            new_theta = asin(vel*sin(phi)/new_vel)
+        else:
+            #new theta is likely obtuse
+            rho = asin(gravity*time_step*sin(phi)/new_vel)
+            new_theta = pi - rho - phi
+
+
+        d_alt_dt = (new_alt - alt)/time_step
+        d_theta_dt = (new_theta - theta)/time_step
+
+        ###########################################################
 
         #calculate the atmospheric density and total oxygen density
         rho_a, rho_o = atmospheric_density_and_oxygen(alt)
@@ -595,13 +620,8 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1):
             #CO2 is the oxidant, so store CO2 density on the oxidant variable
             rho_o = rho_a*co2_percent #use rho_o to track CO2 density
 
-        #calculate the radial and tangential velocity derivatives 
-        #we've assumed a flat Earth here
-        dvel_tan_dt = -0.75*rho_a*vel_tan**2/(rho_m*rad)
-        dvel_rad_dt = gravity - 0.75*rho_a*vel_rad**2/(rho_m*rad)
-
-        #calculate the altitude derivative
-        dalt_dt = -vel_rad 
+        #calculate the velocity derivative
+        d_vel_dt = (new_vel - vel)/time_step - 0.75*rho_a*vel**2/(rho_m*rad) 
 
         #the mass derivative
         #Genge equation 13, which is in [dynes cm-2], converted to [Pa] here
@@ -697,17 +717,17 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1):
         tracker["last_temp"] = temp
 
 
-        return [dalt_dt, 
-                dvel_tan_dt, 
-                dvel_rad_dt, 
+        return [d_alt_dt, 
+                d_vel_dt, 
+                d_theta_dt,
                 dmass_fe_dt,
                 dmass_feo_dt,
                 dtemp_dt]
 
     #collect the initial values for solve_ivp()
     y_0 = [190000+EARTH_RAD, #initial altitude, 190 [km]
-           sin(input_theta)*input_vel, #initial tangential velocity [m s-1]
-           cos(input_theta)*input_vel, #initial radial velocity [m s-1]
+           input_vel, #initial velocity [m s-1]
+           input_theta, #initial impact angle [radians]
            input_mass, #initial Fe mass [kg]
            0, #initial FeO mass [kg], always 0 at start
            300] #initial temperature of micrometeorite [K], not important
@@ -1353,6 +1373,105 @@ def analyzeData(input_dir):
     plt.show()
 
 
+def test_motion():
+    input_theta = 7.0*pi/180
+    input_vel = 8000
+    start_time = 0
+    max_time = 5000
+    param_to_monitor = 0
+    max_param_delta = 0.01
+    base_time_step = 10
+    min_step_time = 0.00000001
+
+    y_0 = [2.0E6+EARTH_RAD, #initial altitude, 190 [km]
+           input_vel, #initial tangential velocity [m s-1]
+           input_theta] #initial radial velocity [m s-1]
+
+    def func(time_step, ys, tracker):
+        cur_r, vel, theta = ys
+        gravity = GRAV_CONST*EARTH_MASS/cur_r**2
+
+        #new radius from law of cosines
+        new_r = ((vel*time_step)**2 + cur_r**2 - \
+                2*cur_r*vel*time_step*cos(theta))**0.5
+
+        #alpha will always be acute since we use small time steps
+        alpha = asin(vel*time_step*sin(theta)/new_r)
+        phi = pi - alpha - theta
+        #phi = asin(cur_r*sin(theta)/new_r)
+        #print(phi*180/pi)
+
+        new_vel = (vel**2 + (gravity*time_step)**2 - \
+                2*vel*gravity*time_step*cos(phi))**0.5
+
+        new_theta = 0
+        if phi > pi/2:
+            #new theta is acute
+            new_theta = asin(vel*sin(phi)/new_vel)
+        else:
+            #new theta is likely obtuse
+            rho = asin(gravity*time_step*sin(phi)/new_vel)
+            new_theta = pi - rho - phi
+
+
+        d_r_dt = (new_r - cur_r)/time_step
+        d_v_dt = (new_vel - vel)/time_step
+        d_theta_dt = (new_theta - theta)/time_step
+
+#        print("------------------------------------------------------------")
+#        print("time step = %0.3f"%(time_step))
+#        print("sin(phi)=%2.2e"%(cur_r*sin(theta)/new_r))
+#        print("phi = %0.3f"%(phi*180/pi))
+#        print("theta = %0.3f"%(theta*180/pi))
+#        print("d_r_dt = %0.3f [km]"%((d_r_dt-EARTH_RAD)/1000))
+#        print("d_v_dt = %0.3f [km s-1]"%(d_v_dt/1000))
+#        print("d_theta_dt = %0.3f [deg]"%(d_theta_dt*180/pi))
+
+
+        return [d_r_dt, d_v_dt, d_theta_dt]
+
+
+    def end_condition(time, ys):
+        if ys[0] < EARTH_RAD:
+            return 0
+        return 1
+
+    tracker = {"xpos":[], "ypos":[]}
+
+    times, ys, status = dynamic_ode_solver(lambda t, y: func(t,y, tracker), 
+            start_time, max_time, y_0, 
+        param_to_monitor, max_param_delta, base_time_step, min_step_time, 
+        end_condition)
+
+    ys = np.array(ys)
+    alts = ys[:,0]
+    vels = ys[:,1]
+    thetas = ys[:,2]
+
+    if status == 1:
+        print("Hit surface")
+    elif status == 0:
+        print("Didn't hit surface")
+    else:
+        print("simulation error")
+
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(6, 8), sharex=True)
+    ax1.plot(times, (alts-EARTH_RAD)/1000)
+    ax1.set_ylabel("Alt. Above Surf. [km]")
+
+    ax2.plot(times, vels/1000)
+    ax2.set_ylabel("Velocity [km s-1]")
+
+    ax3.plot(times, thetas*180/pi)
+    ax3.set_ylabel("Theta [deg]")
+    ax3.set_xlabel("Time [s]")
+
+    plt.show()
+
+#test_motion()
+
+
+
 
 
 
@@ -1373,10 +1492,10 @@ def analyzeData(input_dir):
 
 #50 micron radius has mass 3.665E-9 kg
 #Figure 1: this function runs a basic, single model run
-#plot_particle_parameters(3.665E-9, 11200, 45*pi/180, CO2_fac=0.5)
+plot_particle_parameters(3.665E-9, 11200, 82*pi/180, CO2_fac=0.5)
 
 #Figure - main results!
-plot_co2_data_mean(directory="co2_data_hires")
+#plot_co2_data_mean(directory="co2_data_hires")
 
 #main function to generate data, read from command line
 #generateRandomSampleData(output_dir="co2_data_hires/co2_%0.0f"%(
