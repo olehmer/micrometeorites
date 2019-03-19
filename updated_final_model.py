@@ -37,7 +37,7 @@ FEO_MELTING_TEMP = 1720 #melting temp of Fe) [K]
 RHO_FE = 7000 #liquid Fe density [kg m-3]
 RHO_FEO = 4400 #liquid FeO density [kg m-3]
 
-GAMMA = 0.8
+GAMMA = 1.0
 
 
 class impactAngleDistribution(stats.rv_continuous):
@@ -224,7 +224,7 @@ def atmospheric_density_and_oxygen(altitude):
     reading them in during each model run.
 
     Inputs:
-        altitude - the altitude above the Earth's center [km]
+        altitude - the altitude above the Earth's center [m]
 
     Returns:
         rho_a - atmospheric density [kg m-3]
@@ -400,8 +400,9 @@ def dynamic_ode_solver(func, start_time, max_time, initial_guess,
     end_condition paramter, which should be a function like func that takes
     both the current time (NOT TIME STEP) and the system values like:
         end_condition(current_time, ys)
-    and should return 0 if the integration should terminate, or 1 if not. This
-    solver will attempt each time step and if the % change in the monitored 
+    and should return not 0 if the integration should terminate, or 0 if it 
+    should stop. 
+    This solver will attempt each time step and if the % change in the monitored 
     parameter is greater than the provided max_param_delta (as a fraction), then
     the time step will be reduced by half (repeatedly if necessary) until the
     minimum step time is reached (min_step_time). The step time will slowly
@@ -428,7 +429,9 @@ def dynamic_ode_solver(func, start_time, max_time, initial_guess,
                            is exceeded at the smallest allowed time step an 
                            error status will be returned.
         end_condition    - function that takes current time and values, returns 
-                           0 if the integration should end, 1 if not.
+                           not 0 if the integration should end, 0 otherwise. The
+                           value of end condition will be passed out of this 
+                           function.
 
     Returns:
         times  - the array of time values [s] calculated 
@@ -438,7 +441,8 @@ def dynamic_ode_solver(func, start_time, max_time, initial_guess,
                          smallest allowed time step.
                      0 : simulation ended without meeting end condition (it hit
                          max_time).
-                     1 : simulation reached end condition successfully.
+                    >0 : simulation reached end condition successfully. Return
+                         the result of end_condition.
     """
 
     y_cur = np.array(initial_guess)
@@ -455,9 +459,10 @@ def dynamic_ode_solver(func, start_time, max_time, initial_guess,
     not_failed = True #set to false if the solver fails
 
     while current_time < max_time and end_cond_val and not_failed:
-        if end_condition(current_time, y_cur) == 0:
+        end_val = end_condition(current_time, y_cur)
+        if  end_val != 0:
             end_cond_val = False #we hit the end condition
-            status = 1 #success!
+            status = abs(end_val) #success!
         else:
             #first check if the time step should relax
             if cur_step_size < base_time_step and current_time >= next_relax:
@@ -510,10 +515,10 @@ def dynamic_ode_solver(func, start_time, max_time, initial_guess,
 
 
 
-def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1):
+def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
     """
-    Top level function to simulate a micrometeorite using the solve_ivp function
-    from scipy.
+    Top level function to simulate a micrometeorite using the dynamic ODE solver
+    in this script.
 
     Inputs:
         input_mass    - the initial mass of the micrometeorite [kg]
@@ -527,15 +532,16 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1):
     generated in a try statement and the time step is reduced.
 
     Returns:
-        res - the output from solve_ivp()
+        res - the output from dynamic_ode_solver()
     """
 
 
-    def solidified(_, y_cur, tracker):
+    def should_end(_, y_cur, tracker):
         """
         Stop the solver when the particle has solidified after melting. Also
         stop the calculation if the particle is smaller than our minimum mass 
-        of 3.665E-12 [kg] (5 [micron] Fe radius).
+        of 3.665E-12 [kg] (5 [micron] Fe radius). We also stop if the particle
+        is moving away from the Earth (too shallow entry angle)
 
         Inputs:
             _       - placeholder for time
@@ -543,14 +549,22 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1):
             tracker - object that stores whether to stop or not.
 
         Returns:
-            0 - stop the simulation
-            1 - don't stop the simulation
+            0 - don't stop the simulation
+            1 - stop because mass is too small
+            2 - stop because the micrometeorite has solidified
+            3 - stop because the impact angle was too shallow (moving away from
+                Earth)
         """
 
-        result = 1
+        result = 0
         total_mass = y_cur[3] + y_cur[4]
-        if tracker["solidified"] or total_mass < 3.665E-12:
-            result = 0
+        if total_mass < 3.665E-12:
+            result = 1
+        if tracker["solidified"]:
+            result = 2
+        elif tracker["d_alt_dt"] > 0:
+            #altitude is growing
+            result = 3
         return result
 
 
@@ -610,6 +624,7 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1):
 
 
         d_alt_dt = (new_alt - alt)/time_step
+        tracker["d_alt_dt"] = d_alt_dt
         d_theta_dt = (new_theta - theta)/time_step
 
         ###########################################################
@@ -736,11 +751,10 @@ def simulate_particle_ivp(input_mass, input_vel, input_theta, co2_percent=-1):
     time_range = [0, 120]
 
     #we need delta_t and states, so track the time and melt state with this obj
-    tracker = {"time": 0, "solidified": False, "peak_temp": 0, "last_temp":0} 
+    tracker = {"time": 0, "solidified": False, "peak_temp": 0, "last_temp":0,
+            "d_alt_dt":0} 
 
-    end_cond = lambda t, y: solidified(t, y, tracker)
-    end_cond.terminal = True
-
+    end_cond = lambda t, y: should_end(t, y, tracker)
 
     start_time = 0 #[s]
     max_time = 300 #[s] usually only need 5-20 seconds, return error if hit 300
@@ -859,18 +873,24 @@ def multithreadWrapper(args):
     result = (0, 0)
 
     try:
-        times, data, status = simulate_particle_ivp(mass, velocity, theta, 
+        times, data, status = simulate_particle(mass, velocity, theta, 
                 co2_percent=CO2_fac)
         final_radius, fe_area = get_final_radius_and_fe_area_from_sim(np.array(data))
 
         result = (final_radius, fe_area)
 
-        if status != 1:
+        if status < 1:
             #the try failed, return the error value
             #NOTE: this is because the time step was too too large for the input
             #parameters. The only time this happens is for very fast, very large 
             #particles (that are very rare), so it has negligible impact.
             result = (-1, -1)
+            print("failed run with:")
+            print("status: %d"%(status))
+            print("mass: %2.2e, vel: %0.1f [km s-1], theta: %0.1f, CO2: %0.1f%%"%(
+                mass, velocity/1000, theta*180/pi, CO2_fac*100
+                ))
+            print("------------------------------------------------")
     except:
         print("failed run with:")
         print("mass: %2.2e, vel: %0.1f [km s-1], theta: %0.1f, CO2: %0.1f%%"%(
@@ -999,7 +1019,7 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
     was used to generate Figure 1.
     """
 
-    times, data, stat = simulate_particle_ivp(input_mass, input_vel, input_theta, 
+    times, data, stat = simulate_particle(input_mass, input_vel, input_theta, 
             co2_percent=CO2_fac)
 
     print("status: %d"%(stat))
@@ -1122,7 +1142,7 @@ def zStatAndPlot(directory="rand_sim"):
         rad = results[i][0]
         frac = results[i][1]
 
-        if rad > 5*1.0E-6 and 0 < frac < 0.97:
+        if rad > 5*1.0E-6 and 0 < frac < 1:
             fe_frac_array.append(frac)
 
     genge_data = Genge_2017_Fe_Fraction()
@@ -1468,39 +1488,35 @@ def test_motion():
 
     plt.show()
 
-#test_motion()
 
+def random_single_micrometeorite():
+    theta = impactAngleDistribution().sample(size=1)[0]
+    velocity = initialVelocityDistribution().sample(size=1)[0]
+    velocity = velocity*1000 #convert from [km s-1] to [m s-1]
+    mass = initialMassDistribution().sample(size=1)[0]
+    mass = mass/1000 #convert from [g] to [kg]
+    #theta = 45*pi/180
+    #velocity = 28000
+    #mass = 4E-5
+    print("Inputs: theta=%0.1f [deg], vel=%0.1f [km s-1], mass=%2.2e [kg]"%
+            (theta*180/pi, velocity/1000, mass))
+    plot_particle_parameters(mass, velocity, theta, CO2_fac=-1, max_step=0.0001)
 
-
-
-
-
-
-
-#theta = impactAngleDistribution().sample(size=1)[0]
-#velocity = initialVelocityDistribution().sample(size=1)[0]
-#velocity = velocity*1000 #convert from [km s-1] to [m s-1]
-#mass = initialMassDistribution().sample(size=1)[0]
-#mass = mass/1000 #convert from [g] to [kg]
-#theta = 45*pi/180
-#velocity = 28000
-#mass = 4E-5
-#print("Inputs: theta=%0.1f [deg], vel=%0.1f [km s-1], mass=%2.2e [kg]"%(theta*180/pi, velocity/1000, mass))
-#plot_particle_parameters(mass, velocity, theta, CO2_fac=0.3, max_step=0.0001)
+#random_single_micrometeorite()
         
 
 
 #50 micron radius has mass 3.665E-9 kg
 #Figure 1: this function runs a basic, single model run
-plot_particle_parameters(3.665E-9, 11200, 82*pi/180, CO2_fac=0.5)
+#plot_particle_parameters(3.665E-9, 11200, 87*pi/180, CO2_fac=0.5)
 
 #Figure - main results!
 #plot_co2_data_mean(directory="co2_data_hires")
 
 #main function to generate data, read from command line
-#generateRandomSampleData(output_dir="co2_data_hires/co2_%0.0f"%(
-#                         float(sys.argv[1])*100),
-#                         num_samples=500)
+generateRandomSampleData(output_dir="co2_data_hires/co2_%0.0f"%(
+                         float(sys.argv[1])*100),
+                         num_samples=500)
 #main function for data but no command line
 #generateRandomSampleData(output_dir="test_run",
 #        num_samples=500)
@@ -1512,6 +1528,7 @@ plot_particle_parameters(3.665E-9, 11200, 82*pi/180, CO2_fac=0.5)
 
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
-#plotRandomIronPartition(directory="co2_data/co2_60", use_all=True)
+#plotRandomIronPartition(directory="test_run", use_all=True)
 
 #analyzeData("test_run")
+
