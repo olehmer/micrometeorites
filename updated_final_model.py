@@ -39,6 +39,7 @@ RHO_FEO = 4400 #liquid FeO density [kg m-3]
 
 GAMMA = 1.0
 
+ADD_OX_EST = False
 
 class impactAngleDistribution(stats.rv_continuous):
     """
@@ -71,10 +72,10 @@ class initialVelocityDistribution(stats.rv_continuous):
 
     Note: the values generated from sample are in [km s-1]
 
-    Second note: the velocity is capped at 25 km/s. This is done because faster
+    Second note: the velocity is capped at 20 km/s. This is done because faster
     entries require smaller time steps, which makes the model take unreasonably
-    slow. This is likely acceptable as velocities under 25 km/s account for 
-    97 percent of the incident velocities, so the final result should be 
+    slow. This is likely acceptable as velocities under 20 km/s account for 
+    92.2 percent of the incident velocities, so the final result should be 
     representative of the distribution.
     """
 
@@ -82,7 +83,7 @@ class initialVelocityDistribution(stats.rv_continuous):
         """
         Set the lower limit to 11.2 [km s-1] and the upper to 72 [km s-1]
         """
-        super().__init__(a=11.2, b=25) #upper limit set to 25 km s-1
+        super().__init__(a=11.2, b=20.0) #upper limit set to 20 km s-1
 
 
     def _pdf(self, x):
@@ -106,17 +107,17 @@ class initialMassDistribution(stats.rv_continuous):
 
     def __init__(self):
         """
-        Set the lower limit to 3.665E-9 [g] (5 [micron] Fe radius) and the upper 
+        Set the lower limit to 2.346E-10 [g] (2 [micron] Fe radius) and the upper 
         0.02932 [g] (1000 [micron] Fe radius).
         """
-        super().__init__(a=3.665E-9, b=0.02932)
+        super().__init__(a=2.346E-10, b=0.02932)
 
 
     def _pdf(self, x):
         prob = 0
-        if 3.665E-9 < x < 0.02932:
+        if 2.346E-10 < x < 0.02932:
             prob = ((2.2E3*x**0.306+15)**-4.38 + 1.3E-9*(x + 10**11*x**2 + \
-                    10**27*x**4)**-0.36)/4.50936E-13
+                    10**27*x**4)**-0.36)/4.59811E-13
             prob = float(prob)
         return prob
 
@@ -539,9 +540,9 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
     def should_end(_, y_cur, tracker):
         """
         Stop the solver when the particle has solidified after melting. Also
-        stop the calculation if the particle is smaller than our minimum mass 
-        of 3.665E-12 [kg] (5 [micron] Fe radius). We also stop if the particle
-        is moving away from the Earth (too shallow entry angle)
+        stop the calculation if the particle is smaller than our minimum radius
+        of 1 [micron]. We also stop if the particle is moving away from the 
+        Earth due to a shallow entry angle.
 
         Inputs:
             _       - placeholder for time
@@ -550,15 +551,17 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
 
         Returns:
             0 - don't stop the simulation
-            1 - stop because mass is too small
+            1 - stop because radius is too small
             2 - stop because the micrometeorite has solidified
             3 - stop because the impact angle was too shallow (moving away from
                 Earth)
         """
 
         result = 0
-        total_mass = y_cur[3] + y_cur[4]
-        if total_mass < 3.665E-12:
+        rad = get_radius_and_density(y_cur[3], y_cur[4])[0]
+
+        if rad < 1E-6:
+            #less than 1 micron radius
             result = 1
         if tracker["solidified"]:
             result = 2
@@ -600,7 +603,7 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
         gravity = GRAV_CONST*EARTH_MASS/alt**2
 
 
-        ###########################################################
+        ########################Track Motion###########################
 
         #new radius from law of cosines
         new_alt = ((vel*time_step)**2 + alt**2 - \
@@ -627,18 +630,17 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
         tracker["d_alt_dt"] = d_alt_dt
         d_theta_dt = (new_theta - theta)/time_step
 
-        ###########################################################
+        #######################End Motion###############################
 
         #calculate the atmospheric density and total oxygen density
         rho_a, rho_o = atmospheric_density_and_oxygen(alt)
         if co2_percent != -1:
-            #CO2 is the oxidant, so store CO2 density on the oxidant variable
+            #CO2 is the oxidant, so store CO2 density in the oxidant variable
             rho_o = rho_a*co2_percent #use rho_o to track CO2 density
 
         #calculate the velocity derivative
         d_vel_dt = (new_vel - vel)/time_step - 0.75*rho_a*vel**2/(rho_m*rad) 
 
-        #the mass derivative
         #Genge equation 13, which is in [dynes cm-2], converted to [Pa] here
         p_v = 10**(10.3-20126/temp)
 
@@ -675,6 +677,10 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
             else:
                 #let oxygen be absorbed following Genge
                 ox_enc = GAMMA*rho_o*pi*rad**2*vel
+
+            #set to true to add O2 to the model run with CO2
+            if ADD_OX_EST:
+                ox_enc += 0.01*rho_a*pi*rad**2*vel
 
         #Genge equation 7, but the Langmuir formula has been adjusted for SI
         #this mass loss rate is in [kg s-1] of FeO
@@ -885,14 +891,14 @@ def multithreadWrapper(args):
             #parameters. The only time this happens is for very fast, very large 
             #particles (that are very rare), so it has negligible impact.
             result = (-1, -1)
-            print("failed run with:")
+            print("\nfailed run with:")
             print("status: %d"%(status))
             print("mass: %2.2e, vel: %0.1f [km s-1], theta: %0.1f, CO2: %0.1f%%"%(
                 mass, velocity/1000, theta*180/pi, CO2_fac*100
                 ))
             print("------------------------------------------------")
     except:
-        print("failed run with:")
+        print("\nnumerical failure with:")
         print("mass: %2.2e, vel: %0.1f [km s-1], theta: %0.1f, CO2: %0.1f%%"%(
             mass, velocity/1000, theta*180/pi, CO2_fac*100
             ))
@@ -1142,7 +1148,7 @@ def zStatAndPlot(directory="rand_sim"):
         rad = results[i][0]
         frac = results[i][1]
 
-        if rad > 5*1.0E-6 and 0 < frac < 1:
+        if rad > 2.5*1.0E-6 and 0 < frac < 1:
             fe_frac_array.append(frac)
 
     genge_data = Genge_2017_Fe_Fraction()
@@ -1283,7 +1289,7 @@ def plot_co2_data_mean(directory="co2_runs"):
     Calculate the mean Fe area for varying co2 levels
     """
 
-    num_runs = 25
+    num_runs = 30
     means = np.zeros(num_runs)
     co2_percents = np.zeros(num_runs)
     std_tops = np.zeros(num_runs)
@@ -1305,11 +1311,13 @@ def plot_co2_data_mean(directory="co2_runs"):
 
         for j in range(len(results)):
             frac = results[j][1]
-            if 0 < frac < 0.97:
+            if 0 < frac < 1:
                 particle_fractions.append(frac)
 
             if frac == 0:
                 has_pure_ox = True
+
+
 
         means[i] = np.mean(particle_fractions)
         std = np.std(particle_fractions)
@@ -1333,6 +1341,13 @@ def plot_co2_data_mean(directory="co2_runs"):
     t_std = np.std(tomkins_data)
     mean_ind = np.argmin(np.abs(means - t_mean))
 
+    print("Total if we use 100%%: %d"%(total_with_all))
+    print("Total if we use 99%%: %d"%(total_with_99))
+    print("Fraction between 99%% and 100%%: %0.1f%%"%((total_with_all - 
+        total_with_99)/total_with_all*100))
+
+    print("Tomkins mean: %0.2f, std: %0.2f"%(t_mean, t_std))
+
     #TODO make sure the t_mean is between two points
     ind_dir = -1
     if t_mean < means[mean_ind]:
@@ -1343,6 +1358,7 @@ def plot_co2_data_mean(directory="co2_runs"):
     cur_frac = val/gap
     t_co2_val = (1-cur_frac)*co2_percents[mean_ind] + \
                 cur_frac*co2_percents[mean_ind + ind_dir]
+    print("Tomkins CO2 est: %0.2f%%"%(t_co2_val))
 
     std_tops = np.clip(std_tops, 0, 1)
     std_bots = np.clip(std_bots, 0, 1)
@@ -1378,14 +1394,14 @@ def analyzeData(input_dir):
     input_theta = np.array(inputs[:, 2])
     input_co2 = inputs[0][3]
 
-    f = lambda x: 0.9 if x<0.9 else x
+    f = lambda x: 0.97 if x<0.97 else x
     result_frac = np.array([f(x) for x in result_frac])
 
     cm = plt.cm.get_cmap("Set1")
     scplt = plt.scatter(input_mass, input_vel/1000, c=result_frac, cmap=cm)
     plt.xscale("log")
     plt.xlim(1.0E-12, 1.0E-4)
-    cbar = plt.colorbar(scplt, boundaries=np.linspace(0.9,1,11))
+    cbar = plt.colorbar(scplt, boundaries=np.linspace(0.97,1,11))
     plt.xlabel("Input Mass [kg]")
     plt.ylabel(r"Input Velocity [km s$^{-1}$]")
     plt.title(r"CO$_{2}$ set to %0.0f wt %%"%(input_co2*100))
@@ -1508,13 +1524,13 @@ def random_single_micrometeorite():
 
 #50 micron radius has mass 3.665E-9 kg
 #Figure 1: this function runs a basic, single model run
-#plot_particle_parameters(3.665E-9, 11200, 87*pi/180, CO2_fac=0.5)
+#plot_particle_parameters(3.665E-9, 12000, 45*pi/180, CO2_fac=0.5)
 
 #Figure - main results!
 #plot_co2_data_mean(directory="co2_data_hires")
 
 #main function to generate data, read from command line
-generateRandomSampleData(output_dir="co2_data_hires/co2_%0.0f"%(
+generateRandomSampleData(output_dir="co2_data/co2_%0.0f"%(
                          float(sys.argv[1])*100),
                          num_samples=500)
 #main function for data but no command line
@@ -1522,13 +1538,13 @@ generateRandomSampleData(output_dir="co2_data_hires/co2_%0.0f"%(
 #        num_samples=500)
 
 #Figure - plot that compares to modern micrometeorite collection
-#zStatAndPlot(directory="correct_hox_modernO2_gamma07")
 #zStatAndPlot(directory="test_run")
+#zStatAndPlot(directory="modern_o2_gamma1")
 
 
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
-#plotRandomIronPartition(directory="test_run", use_all=True)
+#plotRandomIronPartition(directory="co2_data_hires/co2_81", use_all=True)
 
-#analyzeData("test_run")
+#analyzeData("co2_data_hires/co2_30")
 

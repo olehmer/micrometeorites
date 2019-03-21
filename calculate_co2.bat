@@ -23,5 +23,9 @@ python updated_final_model.py 0.66
 python updated_final_model.py 0.69
 python updated_final_model.py 0.72
 python updated_final_model.py 0.75
-
+python updated_final_model.py 0.78
+python updated_final_model.py 0.81
+python updated_final_model.py 0.84
+python updated_final_model.py 0.87
+python updated_final_model.py 0.90
 
