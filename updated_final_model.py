@@ -1311,7 +1311,8 @@ def plot_co2_data_mean(directory="co2_runs"):
 
         for j in range(len(results)):
             frac = results[j][1]
-            if 0 < frac < 1:
+            rad = results[j][0]
+            if 0 < frac < 1 and rad > 2.0E-6:
                 particle_fractions.append(frac)
 
             if frac == 0:
@@ -1341,10 +1342,6 @@ def plot_co2_data_mean(directory="co2_runs"):
     t_std = np.std(tomkins_data)
     mean_ind = np.argmin(np.abs(means - t_mean))
 
-    print("Total if we use 100%%: %d"%(total_with_all))
-    print("Total if we use 99%%: %d"%(total_with_99))
-    print("Fraction between 99%% and 100%%: %0.1f%%"%((total_with_all - 
-        total_with_99)/total_with_all*100))
 
     print("Tomkins mean: %0.2f, std: %0.2f"%(t_mean, t_std))
 
@@ -1527,24 +1524,24 @@ def random_single_micrometeorite():
 #plot_particle_parameters(3.665E-9, 12000, 45*pi/180, CO2_fac=0.5)
 
 #Figure - main results!
-#plot_co2_data_mean(directory="co2_data_hires")
+#plot_co2_data_mean(directory="co2_data")
 
 #main function to generate data, read from command line
-generateRandomSampleData(output_dir="co2_data/co2_%0.0f"%(
-                         float(sys.argv[1])*100),
-                         num_samples=500)
+#generateRandomSampleData(output_dir="co2_data/co2_%0.0f"%(
+#                         float(sys.argv[1])*100),
+#                         num_samples=500)
 #main function for data but no command line
-#generateRandomSampleData(output_dir="test_run",
+#generateRandomSampleData(output_dir="modern_o2_gamma1",
 #        num_samples=500)
 
 #Figure - plot that compares to modern micrometeorite collection
 #zStatAndPlot(directory="test_run")
-#zStatAndPlot(directory="modern_o2_gamma1")
+zStatAndPlot(directory="modern_o2_gamma1")
 
 
 #runMultithreadAcrossParams(output_dir="new_output")
 #plotMultithreadResultsRadiusVsTheta(directory="new_output")
-#plotRandomIronPartition(directory="co2_data_hires/co2_81", use_all=True)
+#plotRandomIronPartition(directory="co2_data/co2_30", use_all=True)
 
-#analyzeData("co2_data_hires/co2_30")
+#analyzeData("co2_data/co2_30")
 
