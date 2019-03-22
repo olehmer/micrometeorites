@@ -28,8 +28,13 @@ M_FE = 0.0558 #molecular weight of Fe [kg mol-1]
 M_O = 0.016 #molecular weight of O [kg mol-1]
 M_FEO = M_FE + M_O #molecular weight of FeO [kg mol-1]
 M_CO2 = 0.044 #molecular weight of CO2 [kg mol-1]
-L_V = 6.050E6 #latent heat of vaporization for FeO [J kg-1] from Genge
-C_SP = 390 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
+
+#the latent heat is the same for Fe and FeO
+L_V = 6.0E6 #latent heat of vaporization for FeO [J kg-1] from Genge
+
+#the specific heat is roughly the same for FeO and Fe (and has very little
+#impact on the calculations within a factor of a few)
+C_SP = 400 #specific heat of FeO from Stolen et al. (2015) [J K-1 kg-1]
 FE_MELTING_TEMP = 1809 #temperature at which Fe melts [K]
 FEO_MELTING_TEMP = 1720 #melting temp of Fe) [K]
 
@@ -39,7 +44,7 @@ RHO_FEO = 4400 #liquid FeO density [kg m-3]
 
 GAMMA = 1.0
 
-ADD_OX_EST = False
+ADD_OX_EST = True
 
 class impactAngleDistribution(stats.rv_continuous):
     """
@@ -909,7 +914,8 @@ def multithreadWrapper(args):
     return result
 
 
-def generateRandomSampleData(num_samples=100, output_dir="rand_sim"):
+def generateRandomSampleData(num_samples=100, output_dir="rand_sim",
+        input_dir=""):
     """
     Randomly sample from the input parameters (impact angle, velocity, radius)
     a given number of times.
@@ -917,6 +923,7 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim"):
     Inputs:
         num_samples - the number of simulations to run
         output_dir  - the directory to which the output file will be saved.
+        input_dir   - the directory from which we should read inputs
     """
 
     if __name__ == '__main__':
@@ -935,16 +942,25 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim"):
         if len(sys.argv) == 2:
             CO2_fac = float(sys.argv[1])
         else:
-            sys.stderr.write("The simulation is being run with O2. Proceed? [y/n] ")
-            resp = input()
-            if resp not in ("y", "Y"):
-                return
+            sys.stderr.write("The simulation is being run with O2.")
 
-        thetas = impactAngleDistribution().sample(size=num_samples)
-        velocities = initialVelocityDistribution().sample(size=num_samples)
-        velocities = velocities*1000 #convert from [km s-1] to [m s-1]
-        masses = initialMassDistribution().sample(size=num_samples)
-        masses = masses/1000 #convert from [g] to [kg]
+        thetas = np.zeros(num_samples)
+        velocities = np.zeros(num_samples)
+        masses = np.zeros(num_samples)
+        if len(input_dir) > 0:
+            #input directory given, read it
+            sys.stderr.write("Reading data from: %s\n"%(input_dir))
+            args = readModelDataFile(input_dir + "/args_array.dat")
+            for i in range(len(args)):
+                masses[i] = args[i][0]
+                velocities[i] = args[i][1]
+                thetas[i] = args[i][2]
+        else:
+            thetas = impactAngleDistribution().sample(size=num_samples)
+            velocities = initialVelocityDistribution().sample(size=num_samples)
+            velocities = velocities*1000 #convert from [km s-1] to [m s-1]
+            masses = initialMassDistribution().sample(size=num_samples)
+            masses = masses/1000 #convert from [g] to [kg]
 
         args_array = []
         for i in range(num_samples):
@@ -1283,6 +1299,87 @@ def plotRandomIronPartition(directory="rand_sim", use_all=False):
     plt.xlabel("Model Runs")
     plt.show()
 
+def plot_compare_atmospheres(co2_only_dir, with_o2_dir):
+    """
+    Compare the pure CO2-N2 atmosphere to the CO2-N2-O2 atmosphere.
+    """
+
+    num_runs = 30
+    co2_percents = np.zeros(num_runs)
+
+    means = np.zeros(num_runs)
+    std_tops = np.zeros(num_runs)
+    std_bots = np.zeros(num_runs)
+
+    means_with_o2 = np.zeros(num_runs)
+    std_tops_with_o2 = np.zeros(num_runs)
+    std_bots_with_o2 = np.zeros(num_runs)
+
+
+    not_printed = True
+    not_printed_with_o2 = True
+    pure_ox_val = 100
+    pure_ox_val_with_o2 = 100
+
+    for i in range(0, num_runs):
+        val = (i+1)*3
+        fname = "/co2_%d/clean_results.dat"%(val)
+
+        results = readModelDataFile(co2_only_dir + fname)
+        results_with_o2 = readModelDataFile(with_o2_dir + fname)
+
+        particle_fractions = []
+        particle_fractions_with_o2 = []
+
+        has_pure_ox = False
+        has_pure_ox_with_o2 = False
+
+
+        for j in range(len(results)):
+            frac = results[j][1]
+
+            rad = results[j][0]
+
+            if 0 < frac < 1 and rad > 2.0E-6:
+                particle_fractions.append(frac)
+            if frac == 0:
+                has_pure_ox = True
+
+        for j in range(len(results_with_o2)):
+            frac_with_o2 = results_with_o2[j][1]
+
+            rad_with_o2 = results_with_o2[j][0]
+
+            if 0 < frac_with_o2 < 1 and rad_with_o2 > 2.0E-6:
+                particle_fractions_with_o2.append(frac_with_o2)
+            if frac == 0:
+                has_pure_ox_with_o2 = True
+
+
+
+
+        means[i] = np.mean(particle_fractions)
+        means_with_o2[i] = np.mean(particle_fractions_with_o2)
+
+        #the CO2 percents in the model were done by mass, convert to volume
+        #here. Assume Pure CO2 and N2 atmosphere
+        vol_frac = 7*(val/100)/(11-4*val/100)
+        co2_percents[i] = vol_frac*100
+
+
+    #set the font size of the labels
+    for label in (plt.gca().get_xticklabels() + plt.gca().get_yticklabels()):
+        label.set_fontsize(16)
+    font_size = {'size': '18'}
+
+    plt.plot(co2_percents, means)
+    plt.plot(co2_percents, means_with_o2)
+    plt.xlim(ceil(co2_percents[0]), floor(co2_percents[-1]))
+    plt.ylim(0, 1)
+    plt.xlabel(r"Atmospheric CO${_2}$ [Volume %]", fontdict=font_size)
+    plt.ylabel("Fe Fraction", fontdict=font_size)
+    plt.show()
+
 
 def plot_co2_data_mean(directory="co2_runs"):
     """
@@ -1356,6 +1453,19 @@ def plot_co2_data_mean(directory="co2_runs"):
     t_co2_val = (1-cur_frac)*co2_percents[mean_ind] + \
                 cur_frac*co2_percents[mean_ind + ind_dir]
     print("Tomkins CO2 est: %0.2f%%"%(t_co2_val))
+
+    upper_tomkins = t_mean + 2*t_std
+    mean_ind = np.argmin(np.abs(means - upper_tomkins))
+    ind_dir = -1
+    if upper_tomkins < means[mean_ind]:
+        #linearly interpolate to next point
+        ind_dir = 1
+    gap = abs(means[mean_ind] - means[mean_ind + ind_dir])
+    val = abs(upper_tomkins - means[mean_ind])
+    cur_frac = val/gap
+    t_co2_val_upper = (1-cur_frac)*co2_percents[mean_ind] + \
+                cur_frac*co2_percents[mean_ind + ind_dir]
+    print("Tomkins upper CO2 est: %0.2f%%"%(t_co2_val_upper))
 
     std_tops = np.clip(std_tops, 0, 1)
     std_bots = np.clip(std_bots, 0, 1)
@@ -1526,9 +1636,12 @@ def random_single_micrometeorite():
 #Figure - main results!
 #plot_co2_data_mean(directory="co2_data")
 
+plot_compare_atmospheres("co2_data", "co2_data_with_o2")
+
 #main function to generate data, read from command line
-#generateRandomSampleData(output_dir="co2_data/co2_%0.0f"%(
-#                         float(sys.argv[1])*100),
+#generateRandomSampleData(output_dir="co2_data_with_o2/co2_%0.0f"%(
+#                         float(sys.argv[1])*100), 
+#                         input_dir="co2_data/co2_%0.0f"%(float(sys.argv[1])*100),
 #                         num_samples=500)
 #main function for data but no command line
 #generateRandomSampleData(output_dir="modern_o2_gamma1",
@@ -1536,7 +1649,7 @@ def random_single_micrometeorite():
 
 #Figure - plot that compares to modern micrometeorite collection
 #zStatAndPlot(directory="test_run")
-zStatAndPlot(directory="modern_o2_gamma1")
+#zStatAndPlot(directory="modern_o2_gamma1")
 
 
 #runMultithreadAcrossParams(output_dir="new_output")
