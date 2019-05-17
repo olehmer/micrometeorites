@@ -1392,6 +1392,9 @@ def plot_co2_data_mean(directory="co2_runs"):
     std_tops = np.zeros(num_runs)
     std_bots = np.zeros(num_runs)
 
+    pure_ox_frac = np.zeros(num_runs)
+    pure_fe_frac = np.zeros(num_runs)
+
     not_printed = True
     pure_ox_val = 100
 
@@ -1403,18 +1406,26 @@ def plot_co2_data_mean(directory="co2_runs"):
 
         particle_fractions = []
 
-        has_pure_ox = False
+        pure_ox_count = 0
+        pure_fe_count = 0
 
 
         for j in range(len(results)):
             frac = results[j][1]
             rad = results[j][0]
-            if 0 < frac < 1 and rad > 2.0E-6:
-                particle_fractions.append(frac)
 
-            if frac == 0:
-                has_pure_ox = True
+            if rad > 2.0E-6:
+                if frac < 1:
+                    particle_fractions.append(frac)
 
+                if frac == 0:
+                    pure_ox_count += 1
+
+                if frac == 1:
+                    pure_fe_count += 1
+
+        pure_ox_frac[i] = pure_ox_count/(len(particle_fractions))
+        pure_fe_frac[i] = pure_fe_count/(len(particle_fractions) + pure_fe_count)
 
 
         means[i] = np.mean(particle_fractions)
@@ -1428,7 +1439,7 @@ def plot_co2_data_mean(directory="co2_runs"):
         print("%d wt %% gives %0.2f vol %%"%(val, vol_frac*100))
         co2_percents[i] = vol_frac*100
 
-        if has_pure_ox and not_printed:
+        if pure_ox_count>0 and not_printed:
             print("At %0.2f%% CO2 fully oxidized exists"%(co2_percents[i]))
             not_printed = False
             pure_ox_val = co2_percents[i]
@@ -1471,21 +1482,38 @@ def plot_co2_data_mean(directory="co2_runs"):
     std_bots = np.clip(std_bots, 0, 1)
 
     #set the font size of the labels
+    f_size = 16
     for label in (plt.gca().get_xticklabels() + plt.gca().get_yticklabels()):
-        label.set_fontsize(16)
-    font_size = {'size': '18'}
+        label.set_fontsize(f_size)
+    font_size = {'size': '%d'%(f_size)}
 
-    r0 = Rectangle((pure_ox_val, 0), co2_percents[-1]-pure_ox_val, 1, 
-            color="lightblue", alpha=0.5, zorder=1)
-    plt.gca().add_patch(r0)
-    plt.plot(co2_percents, means, zorder=3)
+#    r0 = Rectangle((pure_ox_val, 0), co2_percents[-1]-pure_ox_val, 1, 
+#            color="lightblue", alpha=0.5, zorder=1)
+#    plt.gca().add_patch(r0)
+    plt.plot(co2_percents, means, "k", zorder=3)
     plt.fill_between(co2_percents, std_tops, std_bots, color="grey", alpha=0.5,
                      zorder=2)
-    plt.errorbar([t_co2_val], [t_mean], yerr=[t_std*2], fmt='-o', zorder=4)
+    plt.errorbar([t_co2_val], [t_mean], yerr=[t_std*2], fmt='-o', zorder=5, 
+            color="#ff7f0e")
+    plt.plot([t_co2_val_upper, co2_percents[-1]], [t_mean, t_mean], "--", 
+            color="#ff7f0e")
     plt.xlim(ceil(co2_percents[0]), floor(co2_percents[-1]))
     plt.ylim(0, 1)
     plt.xlabel(r"Atmospheric CO${_2}$ [Volume %]", fontdict=font_size)
-    plt.ylabel("Fe Fraction", fontdict=font_size)
+    plt.ylabel("Fe Fractional Area", fontdict=font_size)
+    #plt.grid(alpha=0.3, linestyle="dashed")
+
+    ax2 = plt.gca().twinx()
+    #ax2.plot(co2_percents, pure_fe_frac, ':', color="#1f77b4")
+    ax2.plot(co2_percents, pure_ox_frac, '--', color="#1f77b4")
+    ax2.set_ylim(0,1)
+    ax2.set_ylabel("Fraction of Micrometeorites\nthat are Fully Oxidized", 
+            fontdict={'size':'13'})
+    ax2.yaxis.label.set_color("#1f77b4")
+    ax2.tick_params(axis='y', colors="#1f77b4")
+    for label in (ax2.get_yticklabels()):
+        label.set_fontsize(f_size)
+
     plt.show()
 
 
@@ -1634,9 +1662,9 @@ def random_single_micrometeorite():
 #plot_particle_parameters(3.665E-9, 12000, 45*pi/180, CO2_fac=0.5)
 
 #Figure - main results!
-#plot_co2_data_mean(directory="co2_data")
+plot_co2_data_mean(directory="co2_data")
 
-plot_compare_atmospheres("co2_data", "co2_data_with_o2")
+#plot_compare_atmospheres("co2_data", "co2_data_with_o2")
 
 #main function to generate data, read from command line
 #generateRandomSampleData(output_dir="co2_data_with_o2/co2_%0.0f"%(
