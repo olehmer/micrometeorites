@@ -24,10 +24,13 @@ KB = 1.381E-23 #Boltzmann constant [J K-1]
 PROTON_MASS = 1.67E-27 #mass of a proton [kg]
 SIGMA = 5.67E-8 #Stefan-Boltzmann constant [W m-2 K-4]
 GAS_CONST = 8.314 #ideal gas constant [J mol-1 K-1]
-M_FE = 0.0558 #molecular weight of Fe [kg mol-1]
-M_O = 0.016 #molecular weight of O [kg mol-1]
-M_FEO = M_FE + M_O #molecular weight of FeO [kg mol-1]
-M_CO2 = 0.044 #molecular weight of CO2 [kg mol-1]
+M_FE = 0.0558 #molecular mass of Fe [kg mol-1]
+M_O = 0.016 #molecular mass of O [kg mol-1]
+M_FEO = M_FE + M_O #molecular mass of FeO [kg mol-1]
+M_CO2 = 0.044 #molecular mass of CO2 [kg mol-1]
+M_N2 = 0.028 #molecular mass of N2 [kg mol-1]
+DELTA_H_OX_CO2 = -465000 #heat of oxidation for CO2 + Fe -> CO +FeO [J kg-1]
+DELTA_H_OX_O2 = 3716000 #heat of oxidation [J kg-1] from Genge
 
 #the latent heat is the same for Fe and FeO
 L_V = 6.0E6 #latent heat of vaporization for FeO [J kg-1] from Genge
@@ -530,7 +533,9 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
         input_mass    - the initial mass of the micrometeorite [kg]
         input_vel     - the initial entry velocity of the micrometeorite [m s-1]
         input_theta   - initial entry angle of the micrometeorite [radians]
-        co2_percent   - CO2 mass fraction. If set to -1 use O2, not CO2
+        co2_percent   - CO2 mass fraction. If set to -1 use O2, not CO2. NOTE:
+                        this is actually a fraction between 0 and 1, not a 
+                        percent.
         max_time_step - the maximum time step to use in the simulation [s]
         zero_break    - should the simulation stop when temp goes below 0?
 
@@ -538,7 +543,8 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
     generated in a try statement and the time step is reduced.
 
     Returns:
-        res - the output from dynamic_ode_solver()
+        res - the output from dynamic_ode_solver() with the max temperature
+              appended to the tuple
     """
 
 
@@ -654,6 +660,9 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
         #this calculation uses kinetics while reactions with O2 just follow the
         #total oxygen concentration, as described by Genge.
         ox_enc = 0
+
+        ox_test_enc = 0 #to account for O2 in CO2-N2_O2 atmosphere
+
         if temp > FE_MELTING_TEMP or (mass_feo > 0 and temp > FEO_MELTING_TEMP):
             if co2_percent != -1:
                 #this is oxidation via CO2, use kinetics
@@ -685,7 +694,16 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
 
             #set to true to add O2 to the model run with CO2
             if ADD_OX_EST:
-                ox_enc += 0.01*rho_a*pi*rad**2*vel
+                o2_vol_frac = 0.01 #the 1% O2 volume % (fraction)
+                #we want 1% O2 by volume, so we'll have to convert to wt %
+                #first get the CO2 from wt% to vol % (but as a fraction)
+                co2_vol_frac = 7*co2_percent/(11-4*co2_percent)
+
+                #get the N2 vol % (fraction), remove the O2 as well
+                n2_vol_frac = 1.0 - co2_vol_frac - o2_vol_frac
+                o2_wt_perc = o2_vol_frac*M_O*2/(o2_vol_frac*M_O*2 + 
+                        co2_vol_frac*M_CO2 + n2_vol_frac*M_N2)
+                ox_test_enc = o2_wt_perc*rho_a*pi*rad**2*vel
 
         #Genge equation 7, but the Langmuir formula has been adjusted for SI
         #this mass loss rate is in [kg s-1] of FeO
@@ -703,20 +721,26 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
             dm_evap_fe_dt *= fe_evap_frac
             dm_evap_dt *= feo_evap_frac
 
-        dmass_feo_dt = -dm_evap_dt + (M_FEO/M_O)*ox_enc
-        dmass_fe_dt = -(M_FE/M_O)*ox_enc - dm_evap_fe_dt
+        dmass_feo_dt = -dm_evap_dt + (M_FEO/M_O)*(ox_enc + ox_test_enc)
+        dmass_fe_dt = -(M_FE/M_O)*(ox_enc + ox_test_enc) - dm_evap_fe_dt
 
         #combine all the evaporative loses here
-        #NOTE: we've assumed the latent heat of FeO=Fe for evaporation here
+        #NOTE: the latent heat of FeO=Fe for evaporation in our model
         total_evap_dt = dm_evap_fe_dt + dm_evap_dt
         
         #oxidation via CO2 is endothermic so DELTA_H_OX is negative
-        DELTA_H_OX = -465000 #heat of oxidation for CO2 + Fe -> CO +FeO [J kg-1]
+        DELTA_H_OX = DELTA_H_OX_CO2
         if co2_percent == -1:
             #oxidation via oxygen is exothermic
-            DELTA_H_OX = 3716000 #heat of oxidation [J kg-1] from Genge
+            DELTA_H_OX = DELTA_H_OX_O2
 
-        dq_ox_dt = DELTA_H_OX*(M_FEO/M_O)*ox_enc #Genge equation 14
+        ox_test_qt_ox_dt = 0
+        if ADD_OX_EST:
+            #we need to account for the oxidation energy from O2 as well
+            ox_test_qt_ox_dt = DELTA_H_OX_O2*(M_FEO/M_O)*ox_test_enc
+
+        #Genge equation 14
+        dq_ox_dt = DELTA_H_OX*(M_FEO/M_O)*ox_enc + ox_test_qt_ox_dt 
 
         #equation 6 of Genge (2016). This has the oxidation energy considered
         #which is described by equation 14
@@ -777,7 +801,7 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
             max_time, y_0, param_to_monitor, max_param_delta, 
             base_time_step, min_step_time, end_cond)
 
-    return res
+    return res + (tracker["peak_temp"],)
 
 def get_final_radius_and_fe_area_from_sim(data):
     """
@@ -828,9 +852,18 @@ def readModelDataFile(filename):
     
     file_obj = open(filename, "r")
     result = []
+    data_not_started = True
 
     for line in file_obj:
         line_split = line.split()
+        #make sure this isn't a label line
+        if data_not_started:
+            try:
+                float(line_split[0])
+                data_not_started = False
+            except ValueError:
+                continue
+
         if len(line_split) == 1:
             num_val = float(line_split[0])
             result.append(num_val)
@@ -845,16 +878,24 @@ def readModelDataFile(filename):
 
 
 
-def saveModelData(data, filename):
+def saveModelData(data, filename, col_names=[]):
     """
     Takes an array and saves it to a file.
 
     Inputs:
-        data     - input array to save
-        filename - the filename to use for the data
+        data      - input array to save
+        filename  - the filename to use for the data
+        col_names - the array of column names (must match len(data) to be used) 
     """
 
     file_obj = open(filename, "w")
+    if len(col_names) == len(data[1]):
+        line = ""
+        for name in col_names:
+            line += "%s    "%(name)
+        line += "\n"
+        file_obj.write(line)
+
     for d in data:
         line = ""
         if isinstance(d, (tuple, np.ndarray)):
@@ -876,7 +917,8 @@ def multithreadWrapper(args):
         args - a tuple with the form (mass, velocity, impact angle, CO2 wt %)
 
     Returns:
-        result - a tuple with the form (radius, fe_area)
+        result - a tuple with the form (final radius [m], Fe fractional area, 
+                 max temperature reached [K])
     """
 
     mass, velocity, theta, CO2_fac = args
@@ -884,18 +926,18 @@ def multithreadWrapper(args):
     result = (0, 0)
 
     try:
-        times, data, status = simulate_particle(mass, velocity, theta, 
+        times, data, status, max_temp = simulate_particle(mass, velocity, theta, 
                 co2_percent=CO2_fac)
         final_radius, fe_area = get_final_radius_and_fe_area_from_sim(np.array(data))
 
-        result = (final_radius, fe_area)
+        result = (final_radius, fe_area, max_temp)
 
         if status < 1:
             #the try failed, return the error value
             #NOTE: this is because the time step was too too large for the input
             #parameters. The only time this happens is for very fast, very large 
             #particles (that are very rare), so it has negligible impact.
-            result = (-1, -1)
+            result = (-1, -1, -1)
             print("\nfailed run with:")
             print("status: %d"%(status))
             print("mass: %2.2e, vel: %0.1f [km s-1], theta: %0.1f, CO2: %0.1f%%"%(
@@ -908,7 +950,7 @@ def multithreadWrapper(args):
             mass, velocity/1000, theta*180/pi, CO2_fac*100
             ))
         print("------------------------------------------------")
-        result = (-1, -1)
+        result = (-1, -1, -1)
 
 
     return result
@@ -972,8 +1014,11 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim",
             results = list(tqdm(p.imap(multithreadWrapper, args_array), 
                                 total=num_samples))
 
-            saveModelData(args_array, output_dir+"/args_array.dat")
-            saveModelData(results, output_dir+"/results.dat")
+            saveModelData(args_array, output_dir+"/args_array.dat", 
+                    ["Mass [kg]    ", "Velocity [m s-1]", "Theta [rad]", 
+                        "CO2 [wt. frac]"])
+            saveModelData(results, output_dir+"/results.dat", ["Radius [m]   ",
+                "Fe Area [frac]", "Max Temp [k]"])
 
             #delete runs with -1 in them, these failed to converge
             results = np.array(results)
@@ -981,8 +1026,11 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim",
             bad_val_inds = np.argwhere(results < 0)
             results = np.delete(results, bad_val_inds[:, 0], 0)
             args_array = np.delete(args_array, bad_val_inds[:, 0], 0)
-            saveModelData(args_array, output_dir+"/clean_args_array.dat")
-            saveModelData(results, output_dir+"/clean_results.dat")
+            saveModelData(args_array, output_dir+"/clean_args_array.dat",
+                   ["Mass [kg]    ", "Velocity [m s-1]", "Theta [rad]", 
+                        "CO2 [wt. frac]"])
+            saveModelData(results, output_dir+"/clean_results.dat", 
+                    ["Radius [m]   ", "Fe Area [frac]", "Max Temp [k]"])
 
 
 def runMultithreadAcrossParams(output_dir="output"):
@@ -1041,8 +1089,8 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
     was used to generate Figure 1.
     """
 
-    times, data, stat = simulate_particle(input_mass, input_vel, input_theta, 
-            co2_percent=CO2_fac)
+    times, data, stat, max_temp = simulate_particle(input_mass, input_vel, 
+            input_theta, co2_percent=CO2_fac)
 
     print("status: %d"%(stat))
 
@@ -1168,6 +1216,10 @@ def zStatAndPlot(directory="rand_sim"):
             fe_frac_array.append(frac)
 
     genge_data = Genge_2017_Fe_Fraction()
+
+#    for i in range(round(len(results)*0.2)):
+#        fe_frac_array.append(1.0)
+#
 
     p_value = zStatistic(fe_frac_array, genge_data)
     print("Z-test gives p-value: %0.5f"%(p_value))
@@ -1331,7 +1383,6 @@ def plot_compare_atmospheres(co2_only_dir, with_o2_dir):
         particle_fractions = []
         particle_fractions_with_o2 = []
 
-        has_pure_ox = False
         has_pure_ox_with_o2 = False
 
 
@@ -1340,10 +1391,8 @@ def plot_compare_atmospheres(co2_only_dir, with_o2_dir):
 
             rad = results[j][0]
 
-            if 0 < frac < 1 and rad > 2.0E-6:
+            if frac < 1 and rad > 2.0E-6:
                 particle_fractions.append(frac)
-            if frac == 0:
-                has_pure_ox = True
 
         for j in range(len(results_with_o2)):
             frac_with_o2 = results_with_o2[j][1]
@@ -1354,7 +1403,6 @@ def plot_compare_atmospheres(co2_only_dir, with_o2_dir):
                 particle_fractions_with_o2.append(frac_with_o2)
             if frac == 0:
                 has_pure_ox_with_o2 = True
-
 
 
 
@@ -1504,16 +1552,20 @@ def plot_co2_data_mean(directory="co2_runs"):
     #plt.grid(alpha=0.3, linestyle="dashed")
 
     ax2 = plt.gca().twinx()
-    #ax2.plot(co2_percents, pure_fe_frac, ':', color="#1f77b4")
-    ax2.plot(co2_percents, pure_ox_frac, '--', color="#1f77b4")
+#    ax2.plot(co2_percents, pure_fe_frac, ':', color="#1f77b4", 
+#            label="Unmelted")
+    ax2.plot(co2_percents, pure_ox_frac, '--', color="#1f77b4", 
+            label="Fully Oxidized")
     ax2.set_ylim(0,1)
-    ax2.set_ylabel("Fraction of Micrometeorites\nthat are Fully Oxidized", 
+    ax2.set_ylabel("Fully Oxidized\nMicrometeorite Fraction", 
             fontdict={'size':'13'})
+    #ax2.set_ylabel("Micrometeorite Type Fraction", fontdict={'size':'13'})
     ax2.yaxis.label.set_color("#1f77b4")
     ax2.tick_params(axis='y', colors="#1f77b4")
     for label in (ax2.get_yticklabels()):
         label.set_fontsize(f_size)
 
+#    plt.legend()
     plt.show()
 
 
@@ -1662,15 +1714,15 @@ def random_single_micrometeorite():
 #plot_particle_parameters(3.665E-9, 12000, 45*pi/180, CO2_fac=0.5)
 
 #Figure - main results!
-plot_co2_data_mean(directory="co2_data")
+#plot_co2_data_mean(directory="co2_data")
 
-#plot_compare_atmospheres("co2_data", "co2_data_with_o2")
+#plot_compare_atmospheres("co2_data", "co2_data_with_o2_new")
 
 #main function to generate data, read from command line
-#generateRandomSampleData(output_dir="co2_data_with_o2/co2_%0.0f"%(
-#                         float(sys.argv[1])*100), 
-#                         input_dir="co2_data/co2_%0.0f"%(float(sys.argv[1])*100),
-#                         num_samples=500)
+generateRandomSampleData(output_dir="co2_data_with_o2_new/co2_%0.0f"%(
+                         float(sys.argv[1])*100), 
+                         input_dir="co2_data/co2_%0.0f"%(float(sys.argv[1])*100),
+                         num_samples=500)
 #main function for data but no command line
 #generateRandomSampleData(output_dir="modern_o2_gamma1",
 #        num_samples=500)
