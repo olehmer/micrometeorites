@@ -47,7 +47,7 @@ RHO_FEO = 4400 #liquid FeO density [kg m-3]
 
 GAMMA = 1.0
 
-ADD_OX_EST = True
+ADD_OX_EST = False
 
 class impactAngleDistribution(stats.rv_continuous):
     """
@@ -1383,15 +1383,14 @@ def plot_compare_atmospheres(co2_only_dir, with_o2_dir):
         particle_fractions = []
         particle_fractions_with_o2 = []
 
-        has_pure_ox_with_o2 = False
-
-
         for j in range(len(results)):
             frac = results[j][1]
 
             rad = results[j][0]
 
-            if frac < 1 and rad > 2.0E-6:
+            max_temp = results[j][2]
+
+            if rad > 2.0E-6 and max_temp > FE_MELTING_TEMP and frac > 0:
                 particle_fractions.append(frac)
 
         for j in range(len(results_with_o2)):
@@ -1399,14 +1398,16 @@ def plot_compare_atmospheres(co2_only_dir, with_o2_dir):
 
             rad_with_o2 = results_with_o2[j][0]
 
-            if 0 < frac_with_o2 < 1 and rad_with_o2 > 2.0E-6:
+            max_temp = results_with_o2[j][2]
+
+            if rad_with_o2 > 2.0E-6 and max_temp > FE_MELTING_TEMP and \
+                    frac_with_o2 > 0:
                 particle_fractions_with_o2.append(frac_with_o2)
-            if frac == 0:
-                has_pure_ox_with_o2 = True
 
 
 
         means[i] = np.mean(particle_fractions)
+        test_mean = np.mean(particle_fractions_with_o2)
         means_with_o2[i] = np.mean(particle_fractions_with_o2)
 
         #the CO2 percents in the model were done by mass, convert to volume
@@ -1414,18 +1415,19 @@ def plot_compare_atmospheres(co2_only_dir, with_o2_dir):
         vol_frac = 7*(val/100)/(11-4*val/100)
         co2_percents[i] = vol_frac*100
 
-
     #set the font size of the labels
     for label in (plt.gca().get_xticklabels() + plt.gca().get_yticklabels()):
         label.set_fontsize(16)
     font_size = {'size': '18'}
 
-    plt.plot(co2_percents, means)
-    plt.plot(co2_percents, means_with_o2)
+    plt.plot(co2_percents, means, "k", label=r"CO$_{2}$-N$_{2}$")
+    plt.plot(co2_percents, means_with_o2, color="#ff7f0e",
+            label=r"CO$_{2}$-N$_{2}$-O$_{2}$(1%)")
     plt.xlim(ceil(co2_percents[0]), floor(co2_percents[-1]))
     plt.ylim(0, 1)
     plt.xlabel(r"Atmospheric CO${_2}$ [Volume %]", fontdict=font_size)
     plt.ylabel("Fe Fraction", fontdict=font_size)
+    plt.legend()
     plt.show()
 
 
@@ -1461,15 +1463,16 @@ def plot_co2_data_mean(directory="co2_runs"):
         for j in range(len(results)):
             frac = results[j][1]
             rad = results[j][0]
+            max_temp = results[j][2]
 
             if rad > 2.0E-6:
-                if frac < 1:
+                if 0 < frac < 1 and max_temp > FE_MELTING_TEMP:
                     particle_fractions.append(frac)
 
                 if frac == 0:
                     pure_ox_count += 1
 
-                if frac == 1:
+                if frac == 1 and max_temp > FE_MELTING_TEMP:
                     pure_fe_count += 1
 
         pure_ox_frac[i] = pure_ox_count/(len(particle_fractions))
@@ -1714,15 +1717,15 @@ def random_single_micrometeorite():
 #plot_particle_parameters(3.665E-9, 12000, 45*pi/180, CO2_fac=0.5)
 
 #Figure - main results!
-#plot_co2_data_mean(directory="co2_data")
+#plot_co2_data_mean(directory="co2_data_new")
 
-#plot_compare_atmospheres("co2_data", "co2_data_with_o2_new")
+plot_compare_atmospheres("co2_data_new", "co2_data_with_o2_new")
 
 #main function to generate data, read from command line
-generateRandomSampleData(output_dir="co2_data_with_o2_new/co2_%0.0f"%(
-                         float(sys.argv[1])*100), 
-                         input_dir="co2_data/co2_%0.0f"%(float(sys.argv[1])*100),
-                         num_samples=500)
+#generateRandomSampleData(output_dir="co2_data_new/co2_%0.0f"%(
+#                         float(sys.argv[1])*100), 
+#                         input_dir="co2_data/co2_%0.0f"%(float(sys.argv[1])*100),
+#                         num_samples=500)
 #main function for data but no command line
 #generateRandomSampleData(output_dir="modern_o2_gamma1",
 #        num_samples=500)
