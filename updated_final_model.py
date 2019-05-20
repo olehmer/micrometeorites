@@ -1475,7 +1475,7 @@ def plot_co2_data_mean(directory="co2_runs"):
                 if frac == 1 and max_temp > FE_MELTING_TEMP:
                     pure_fe_count += 1
 
-        pure_ox_frac[i] = pure_ox_count/(len(particle_fractions))
+        pure_ox_frac[i] = pure_ox_count/(len(particle_fractions) + pure_ox_count)
         pure_fe_frac[i] = pure_fe_count/(len(particle_fractions) + pure_fe_count)
 
 
@@ -1717,9 +1717,9 @@ def random_single_micrometeorite():
 #plot_particle_parameters(3.665E-9, 12000, 45*pi/180, CO2_fac=0.5)
 
 #Figure - main results!
-#plot_co2_data_mean(directory="co2_data_new")
+plot_co2_data_mean(directory="co2_data_new")
 
-plot_compare_atmospheres("co2_data_new", "co2_data_with_o2_new")
+#plot_compare_atmospheres("co2_data_new", "co2_data_with_o2_new")
 
 #main function to generate data, read from command line
 #generateRandomSampleData(output_dir="co2_data_new/co2_%0.0f"%(
