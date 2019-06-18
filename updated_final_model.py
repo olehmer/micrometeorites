@@ -827,8 +827,9 @@ def get_final_radius_and_fe_area_from_sim(data):
 
     rad = 0
     fe_frac = 0
+
+    #make sure the micrometeorite didn't completely evaporate
     if fe_mass > 0 or feo_mass > 0:
-        #make sure the micrometeorite didn't completely evaporate
         rad = get_radius_and_density(fe_mass, feo_mass)[0]
         fe_rad = get_radius_and_density(fe_mass, 0)[0]
         feo_rad = get_radius_and_density(0, feo_mass)[0]
@@ -1431,6 +1432,55 @@ def plot_compare_atmospheres(co2_only_dir, with_o2_dir):
     plt.show()
 
 
+def plot_total_final_mass(directory="co2_runs"):
+    """
+    Plot the mass loss of the final particles
+    """
+
+    val = 75
+    fname = "/co2_%d/clean_results.dat"%(val)
+    fname_args = "/co2_%d/clean_args_array.dat"%(val)
+
+    results = readModelDataFile(directory + fname)
+    args = readModelDataFile(directory + fname_args)
+
+    particle_mass_fraction = []
+
+
+    for j in range(len(results)):
+        frac = results[j][1]
+        rad = results[j][0]
+        max_temp = results[j][2]
+        initial_mass = args[j][0]
+
+        total_area = pi*rad**2
+        fe_area = frac*total_area
+        feo_area = total_area - fe_area
+
+
+        final_fe_rad = (fe_area/pi)**0.5
+        final_feo_rad = (feo_area/pi)**0.5
+
+        final_fe_mass = 4/3*pi*final_fe_rad**3*RHO_FE
+        final_feo_mass = 4/3*pi*final_feo_rad**3*RHO_FEO
+
+        total_final_mass = final_feo_mass + final_fe_mass
+
+        if rad > 2.0E-6 and 0<frac<1:
+            particle_mass_fraction.append(total_final_mass/initial_mass)
+
+    plt.hist(particle_mass_fraction, 50)
+    plt.xlabel("Final Mass divided by Initial Mass")
+    plt.ylabel("Model Counts")
+    plt.title(r"Mass Loss in %2.0f%% CO$_{2}$"%(val))
+    plt.show()
+
+
+        
+
+
+
+
 def plot_co2_data_mean(directory="co2_runs"):
     """
     Calculate the mean Fe area for varying co2 levels
@@ -1710,14 +1760,15 @@ def random_single_micrometeorite():
 
 #random_single_micrometeorite()
         
-
+#function to plot mass loss fraction for Don
+plot_total_final_mass(directory="co2_data_new")
 
 #50 micron radius has mass 3.665E-9 kg
 #Figure 1: this function runs a basic, single model run
 #plot_particle_parameters(3.665E-9, 12000, 45*pi/180, CO2_fac=0.5)
 
 #Figure - main results!
-plot_co2_data_mean(directory="co2_data_new")
+#plot_co2_data_mean(directory="co2_data_new")
 
 #plot_compare_atmospheres("co2_data_new", "co2_data_with_o2_new")
 
