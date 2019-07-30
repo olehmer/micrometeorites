@@ -1,7 +1,6 @@
 """
 This code models the entry of iron micrometeorites into an atmosphere. For help
 with this code email info@lehmer.us.
-
 Owen Lehmer - 1/14/19
 """
 
@@ -16,7 +15,7 @@ import os
 import sys
 
 
-#################constants defined here###############
+#Define constants here
 EARTH_RAD = 6.37E6 #radius of Earth [m]
 EARTH_MASS = 5.97E24 #Earth mass [kg]
 GRAV_CONST = 6.67E-11 #gravitational constant [N m2 kg-2]
@@ -48,7 +47,6 @@ RHO_FEO = 4400 #liquid FeO density [kg m-3]
 GAMMA = 1.0
 
 ADD_OX_EST = False
-######################end constants###############################
 
 class impactAngleDistribution(stats.rv_continuous):
     """
@@ -78,9 +76,7 @@ class initialVelocityDistribution(stats.rv_continuous):
     The probability distribution of initial velocity. This class will generate
     random initial velocities from the distribution defined in Love and Brownlee 
     (1991).
-
     Note: the values generated from sample are in [km s-1]
-
     Second note: the velocity is capped at 20 km/s. This is done because faster
     entries require smaller time steps, which makes the model take unreasonably
     slow. This is likely acceptable as velocities under 20 km/s account for 
@@ -110,7 +106,6 @@ class initialMassDistribution(stats.rv_continuous):
     The probability distribution of initial mass. This class will generate
     random initial masses from the distribution defined in Love and Brownlee 
     (1991). The masses can easily be converted to initial radii.
-
     Note: the values generated from the PDF are in [g]
     """
 
@@ -140,11 +135,9 @@ def zStatistic(population_data, sample_data):
     data is from the same population as the population data. It is assumed that
     the population (calculated from the model) is approximately normally 
     distributed.
-
     Inputs:
         population_data - 1D array of population data
         sample_data     - 1D array of sample data
-
     Returns:
         p_value - the probability the sample is from the population (two sided)
     """
@@ -173,11 +166,9 @@ def Genge_2017_Fe_Fraction():
     the figure are giving in %-area. It is worth noting that this is a minimum
     value for the Fe bead as the preparation process is unlikely to grind the
     bead at exactly the middle, so the widest Fe bead may not be displayed.
-
     From the data in Figure 4 there are 34 micrometeorites with Fe cores, and
     50 micrometeorites that are fully oxidized to either wustite, magnetite, or
     some combination of the two.
-
     Returns:
         fe_mass_fractions - array of Fe mass fractions for each micrometeorite
     """
@@ -232,10 +223,8 @@ def atmospheric_density_and_oxygen(altitude):
     function will linearly interpolate between. The data arrays come from the
     function ReadAndProcessAtmosData(). The arrays were hardcoded to avoid 
     reading them in during each model run.
-
     Inputs:
         altitude - the altitude above the Earth's center [m]
-
     Returns:
         rho_a - atmospheric density [kg m-3]
         rho_o - total oxygen density [kg m-3]
@@ -361,11 +350,9 @@ def get_radius_and_density(m_fe, m_feo, not_array=True):
     """
     Calculate the radius and bulk density of the micrometeorite using the mass
     fraction of Fe to FeO.
-
     Inputs:
         M_Fe  - mass of Fe in the micrometeorite [kg]
         M_FeO - mass of FeO in the micrometeorite [kg]
-
     Returns:
         new_rad - updated micrometeorite radius [m]
         new_rho - updated micrometeorite density [kg m-3]
@@ -385,10 +372,8 @@ def fe_co2_rate_constant(temp):
     """
     Calculate the rate constant for the reaction Fe + CO2 -> FeO + CO from
     Smirnov (2008). The reaction is assumed to be first order.
-
     Inputs:
         temp - the temperature of the micrometeorite [K]
-
     Returns:
         k_fe_co2 - the reaction rate constant [m3 mol-1 s-1]
     """
@@ -422,7 +407,6 @@ def dynamic_ode_solver(func, start_time, max_time, initial_guess,
         initial_guess = [position, velocity]
     and you want to make sure the position never changes by more than 1% you'd
     set param_to_monitor=0 and max_param_delta=0.01. 
-
     Inputs:
         func             - function that takes time step and values, returns 
                            derivatives
@@ -442,7 +426,6 @@ def dynamic_ode_solver(func, start_time, max_time, initial_guess,
                            not 0 if the integration should end, 0 otherwise. The
                            value of end condition will be passed out of this 
                            function.
-
     Returns:
         times  - the array of time values [s] calculated 
         ys     - the array of parameter values at each time step
@@ -529,7 +512,6 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
     """
     Top level function to simulate a micrometeorite using the dynamic ODE solver
     in this script.
-
     Inputs:
         input_mass    - the initial mass of the micrometeorite [kg]
         input_vel     - the initial entry velocity of the micrometeorite [m s-1]
@@ -539,10 +521,8 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
                         percent.
         max_time_step - the maximum time step to use in the simulation [s]
         zero_break    - should the simulation stop when temp goes below 0?
-
     NOTE: during data generation zero_break is set to false so an error is 
     generated in a try statement and the time step is reduced.
-
     Returns:
         res - the output from dynamic_ode_solver() with the max temperature
               appended to the tuple
@@ -555,12 +535,10 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
         stop the calculation if the particle is smaller than our minimum radius
         of 1 [micron]. We also stop if the particle is moving away from the 
         Earth due to a shallow entry angle.
-
         Inputs:
             _       - placeholder for time
             y_cur   - current simulation values
             tracker - object that stores whether to stop or not.
-
         Returns:
             0 - don't stop the simulation
             1 - stop because radius is too small
@@ -592,7 +570,6 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
             y_in - inputs to the function, has the form:
                 TODO: put in form
             tracker - holds the previous time to find the time step
-
         Returns:
             dy_dt - the derivative of each y value at t
         """
@@ -808,10 +785,8 @@ def get_final_radius_and_fe_area_from_sim(data):
     """
     Calculate the final radius and the final Fe area fraction from the solve_ivp
     results.
-
     Inputs:
         data - the data from the solve_ivp() function
-
     Returns:
         rad     - final micrometeorite radius [m]
         fe_frac - final micrometeorite Fe fractional area
@@ -828,9 +803,8 @@ def get_final_radius_and_fe_area_from_sim(data):
 
     rad = 0
     fe_frac = 0
-
-    #make sure the micrometeorite didn't completely evaporate
     if fe_mass > 0 or feo_mass > 0:
+        #make sure the micrometeorite didn't completely evaporate
         rad = get_radius_and_density(fe_mass, feo_mass)[0]
         fe_rad = get_radius_and_density(fe_mass, 0)[0]
         feo_rad = get_radius_and_density(0, feo_mass)[0]
@@ -844,10 +818,8 @@ def get_final_radius_and_fe_area_from_sim(data):
 def readModelDataFile(filename):
     """
     Read the data from an output file.
-
     Inputs:
         filename - the file to read
-
     Returns:
         result - the data from the file
     """
@@ -883,7 +855,6 @@ def readModelDataFile(filename):
 def saveModelData(data, filename, col_names=[]):
     """
     Takes an array and saves it to a file.
-
     Inputs:
         data      - input array to save
         filename  - the filename to use for the data
@@ -914,10 +885,8 @@ def multithreadWrapper(args):
     """
     This function will pass the multithreaded run arguments to simulateParticle
     then return the simulation parameters.
-
     Input:
         args - a tuple with the form (mass, velocity, impact angle, CO2 wt %)
-
     Returns:
         result - a tuple with the form (final radius [m], Fe fractional area, 
                  max temperature reached [K])
@@ -963,7 +932,6 @@ def generateRandomSampleData(num_samples=100, output_dir="rand_sim",
     """
     Randomly sample from the input parameters (impact angle, velocity, radius)
     a given number of times.
-
     Inputs:
         num_samples - the number of simulations to run
         output_dir  - the directory to which the output file will be saved.
@@ -1039,7 +1007,6 @@ def runMultithreadAcrossParams(output_dir="output"):
     """
     Run the simulation across the parameter ranges of initial radius, velocity,
     and impact angle (theta).
-
     Inputs:
         output_dir  - the directory to which the output file will be saved.
     """
@@ -1124,17 +1091,12 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
 
     rad, frac = get_final_radius_and_fe_area_from_sim(data)
     mass_frac = fe_fracs[-1]
-    print("Starting radius: %0.1f [microns]"%(rads[0]*(1.0E6)))
     print("Final radius: %0.1f [microns]"%(rad/(1.0E-6)))
     print("Final Fe area fraction: %0.2f"%(frac))
     print("Final Fe mass fraction: %0.2f"%(mass_frac))
     ind = np.argmax(temps)
     print("Max temp: %0.0f [K]"%(temps[ind]))
     print("Altitude of max temp: %0.1f [km]"%((alts[ind]-EARTH_RAD)/1000))
-
-
-    #set the font size
-    plt.rcParams.update({'font.size': 14})
 
 
     fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, figsize=(6, 8), sharex=True)
@@ -1170,7 +1132,7 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
     if last_ind - end_ind > 0:
         ax3.plot(times[end_ind:last_ind], rads[end_ind:last_ind], 
                  color="red")
-    ax3.set_ylabel(r"Rad. [$\mu$m]")
+    ax3.set_ylabel(r"Radius [$\mu$m]")
     ax3.text(0.025, 0.9, "C", 
              horizontalalignment='center',
              verticalalignment='center',
@@ -1203,52 +1165,7 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
              transform=ax5.transAxes)
 
 
-    fig.tight_layout();
     plt.show()
-
-    ##################for the WebGL animation############################
-#
-#    start_time = times[0]
-#    end_time = times[-1]
-#
-#
-#    time_array = np.linspace(start_time, end_time, int((end_time-start_time)*60.0))
-#
-#    t_inds = idxOfNearest(times, time_array)
-#
-#    new_times = times[t_inds]
-#    new_temps = temps[t_inds]
-#    new_rads = rads[t_inds]
-#    new_fracs = fe_fracs[t_inds]
-#
-#    times_str = "var times = ["
-#    temps_str = "var temps = ["
-#    rads_str = "var rads = ["
-#    fracs_str = "var fracs = ["
-#
-#    for i in range(0,len(new_times)-1):
-#        times_str += "%0.4f,\n"%(new_times[i])
-#        temps_str += "%0.4f,\n"%(new_temps[i])
-#        rads_str += "%0.4f,\n"%(new_rads[i])
-#        fracs_str += "%0.4f,\n"%(new_fracs[i])
-#    times_str += "%0.4f];"%(new_times[-1])
-#    temps_str += "%0.4f];"%(new_temps[-1])
-#    rads_str += "%0.4f];"%(new_rads[-1])
-#    fracs_str += "%0.4f];"%(new_fracs[-1])
-#
-#    print(fracs_str)
-
-    #####################################################################
-
-
-def idxOfNearest(array, values):
-    idx = []
-
-    for val in values:
-        abs_array = np.abs(array-val)
-        result = np.argmin(abs_array)
-        idx.append(result)
-    return idx
 
 
 def zStatAndPlot(directory="rand_sim"):
@@ -1273,9 +1190,6 @@ def zStatAndPlot(directory="rand_sim"):
 #        fe_frac_array.append(1.0)
 #
 
-    #set the font size
-    plt.rcParams.update({'font.size': 16})
-
     p_value = zStatistic(fe_frac_array, genge_data)
     print("Z-test gives p-value: %0.5f"%(p_value))
     mean = np.mean(fe_frac_array)
@@ -1291,10 +1205,9 @@ def zStatAndPlot(directory="rand_sim"):
                  fmt='-o', color="#ff7f0e")
     plt.errorbar([mean], [7.0], xerr=[std], fmt='-o', color="#1f77b4")
     plt.xlabel("Fe Fractional Area")
-    plt.ylabel("Model Counts (blue)\nGenge Data (orange)")
+    plt.ylabel("Model Counts (blue), Genge Data (orange)")
     #plt.title("Model Mean (red), Genge Mean (green), bars=95%")
     plt.gca().set_yticks([])
-    plt.tight_layout()
     plt.show()
 
 
@@ -1302,7 +1215,6 @@ def plotMultithreadResultsRadiusVsTheta(directory="output"):
     """
     Plot the particle radius vs impact parameter for various velocities. The 
     displayed output is specified by param, which defaults to maximum temp.
-
     """
 
     masses = np.array(readModelDataFile(directory+"/masses.dat"))
@@ -1372,7 +1284,6 @@ def plotMultithreadResultsRadiusVsTheta(directory="output"):
 def plotRandomIronPartition(directory="rand_sim", use_all=False):
     """
     Plot the random data in the style of figure 4 from Genge et al 2017.
-
     Inputs:
         directory - the directory to find the data in
     """
@@ -1476,9 +1387,6 @@ def plot_compare_atmospheres(co2_only_dir, with_o2_dir):
         label.set_fontsize(16)
     font_size = {'size': '18'}
 
-    #set the font size
-    plt.rcParams.update({'font.size': 14})
-
     plt.plot(co2_percents, means, "k", label=r"CO$_{2}$-N$_{2}$")
     plt.plot(co2_percents, means_with_o2, color="#ff7f0e",
             label=r"CO$_{2}$-N$_{2}$-O$_{2}$(1%)")
@@ -1487,58 +1395,7 @@ def plot_compare_atmospheres(co2_only_dir, with_o2_dir):
     plt.xlabel(r"Atmospheric CO${_2}$ [Volume %]", fontdict=font_size)
     plt.ylabel("Fe Fraction", fontdict=font_size)
     plt.legend()
-
-    plt.tight_layout()
     plt.show()
-
-
-def plot_total_final_mass(directory="co2_runs"):
-    """
-    Plot the mass loss of the final particles
-    """
-
-    val = 75
-    fname = "/co2_%d/clean_results.dat"%(val)
-    fname_args = "/co2_%d/clean_args_array.dat"%(val)
-
-    results = readModelDataFile(directory + fname)
-    args = readModelDataFile(directory + fname_args)
-
-    particle_mass_fraction = []
-
-
-    for j in range(len(results)):
-        frac = results[j][1]
-        rad = results[j][0]
-        max_temp = results[j][2]
-        initial_mass = args[j][0]
-
-        total_area = pi*rad**2
-        fe_area = frac*total_area
-        feo_area = total_area - fe_area
-
-
-        final_fe_rad = (fe_area/pi)**0.5
-        final_feo_rad = (feo_area/pi)**0.5
-
-        final_fe_mass = 4/3*pi*final_fe_rad**3*RHO_FE
-        final_feo_mass = 4/3*pi*final_feo_rad**3*RHO_FEO
-
-        total_final_mass = final_feo_mass + final_fe_mass
-
-        if rad > 2.0E-6 and 0<frac<1:
-            particle_mass_fraction.append(total_final_mass/initial_mass)
-
-    plt.hist(particle_mass_fraction, 50)
-    plt.xlabel("Final Mass divided by Initial Mass")
-    plt.ylabel("Model Counts")
-    plt.title(r"Mass Loss in %2.0f%% CO$_{2}$"%(val))
-    plt.show()
-
-
-        
-
-
 
 
 def plot_co2_data_mean(directory="co2_runs"):
@@ -1585,7 +1442,7 @@ def plot_co2_data_mean(directory="co2_runs"):
                 if frac == 1 and max_temp > FE_MELTING_TEMP:
                     pure_fe_count += 1
 
-        pure_ox_frac[i] = pure_ox_count/(len(particle_fractions) + pure_ox_count)
+        pure_ox_frac[i] = pure_ox_count/(len(particle_fractions))
         pure_fe_frac[i] = pure_fe_count/(len(particle_fractions) + pure_fe_count)
 
 
@@ -1679,7 +1536,6 @@ def plot_co2_data_mean(directory="co2_runs"):
         label.set_fontsize(f_size)
 
 #    plt.legend()
-    plt.tight_layout()
     plt.show()
 
 
@@ -1821,8 +1677,7 @@ def random_single_micrometeorite():
 
 #random_single_micrometeorite()
         
-#function to plot mass loss fraction for Don
-#plot_total_final_mass(directory="co2_data_new")
+
 
 #50 micron radius has mass 3.665E-9 kg
 #Figure 1: this function runs a basic, single model run
@@ -1831,7 +1686,6 @@ plot_particle_parameters(3.665E-9, 12000, 45*pi/180, CO2_fac=0.5)
 #Figure - main results!
 #plot_co2_data_mean(directory="co2_data_new")
 
-#Figure 3 of paper
 #plot_compare_atmospheres("co2_data_new", "co2_data_with_o2_new")
 
 #main function to generate data, read from command line
@@ -1843,7 +1697,8 @@ plot_particle_parameters(3.665E-9, 12000, 45*pi/180, CO2_fac=0.5)
 #generateRandomSampleData(output_dir="modern_o2_gamma1",
 #        num_samples=500)
 
-#Figure 2 - plot that compares to modern micrometeorite collection
+#Figure - plot that compares to modern micrometeorite collection
+#zStatAndPlot(directory="test_run")
 #zStatAndPlot(directory="modern_o2_gamma1")
 
 
@@ -1852,4 +1707,3 @@ plot_particle_parameters(3.665E-9, 12000, 45*pi/180, CO2_fac=0.5)
 #plotRandomIronPartition(directory="co2_data/co2_30", use_all=True)
 
 #analyzeData("co2_data/co2_30")
-
