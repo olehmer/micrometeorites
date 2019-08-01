@@ -804,21 +804,23 @@ def simulate_particle(input_mass, input_vel, input_theta, co2_percent=-1):
 
     return res + (tracker["peak_temp"],)
 
-def get_final_radius_and_fe_area_from_sim(data):
+def get_final_radius_and_fe_area_from_sim(data, loc=-1):
     """
     Calculate the final radius and the final Fe area fraction from the solve_ivp
     results.
 
     Inputs:
         data - the data from the solve_ivp() function
+        loc  - the location in the array to get the radius and area (default to
+               the last element)
 
     Returns:
         rad     - final micrometeorite radius [m]
         fe_frac - final micrometeorite Fe fractional area
     """
 
-    fe_mass = data[-1, 3]
-    feo_mass = data[-1, 4]
+    fe_mass = data[loc, 3]
+    feo_mass = data[loc, 4]
 
     #replace negative values
     if fe_mass < 0:
@@ -1107,6 +1109,8 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
     rads = get_radius_and_density(data[:, 3], data[:, 4], not_array=False)[0]
     temps = data[:, 5]
 
+    fe_area_frac = np.zeros(len(temps))
+
     start_ind = -1
     end_ind = -1
     last_ind = -1
@@ -1117,6 +1121,9 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
             end_ind = i-1
         if temps[i] > FEO_MELTING_TEMP:
             last_ind = i
+
+        _, a_frac = get_final_radius_and_fe_area_from_sim(data, i)
+        fe_area_frac[i] = a_frac
 
     print("Molten start: %0.1f seconds"%(times[start_ind]))
     print("Molten end: %0.1f seconds"%(times[end_ind]))
@@ -1219,7 +1226,7 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
 #    new_times = times[t_inds]
 #    new_temps = temps[t_inds]
 #    new_rads = rads[t_inds]
-#    new_fracs = fe_fracs[t_inds]
+#    new_fracs = fe_area_frac[t_inds]
 #
 #    times_str = "var times = ["
 #    temps_str = "var temps = ["
@@ -1237,7 +1244,7 @@ def plot_particle_parameters(input_mass, input_vel, input_theta, CO2_fac,
 #    fracs_str += "%0.4f];"%(new_fracs[-1])
 #
 #    print(fracs_str)
-
+#
     #####################################################################
 
 
